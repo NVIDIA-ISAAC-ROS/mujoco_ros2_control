@@ -29,6 +29,7 @@
 #include <hardware_interface/hardware_info.hpp>
 #include <hardware_interface/system_interface.hpp>
 #include <hardware_interface/types/hardware_interface_return_values.hpp>
+#include <geometry_msgs/msg/transform_stamped.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/macros.hpp>
 #include <rclcpp/rclcpp.hpp>
@@ -36,6 +37,7 @@
 #include <rclcpp_lifecycle/state.hpp>
 #include <realtime_tools/realtime_publisher.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
+#include <tf2_ros/transform_broadcaster.hpp>
 
 #include <mujoco/mujoco.h>
 
@@ -304,6 +306,11 @@ private:
   std::shared_ptr<rclcpp::Publisher<nav_msgs::msg::Odometry>> floating_base_publisher_ = nullptr;
   realtime_tools::RealtimePublisher<nav_msgs::msg::Odometry>::SharedPtr floating_base_realtime_publisher_ = nullptr;
   nav_msgs::msg::Odometry floating_base_msg_;
+
+  // Floating base TF broadcaster
+  std::unique_ptr<tf2_ros::TransformBroadcaster> floating_base_tf_broadcaster_ = nullptr;
+  geometry_msgs::msg::TransformStamped floating_base_tf_msg_;
+  bool publish_floating_base_tf_ = true;
 
   // Free joint data
   int free_joint_id_ = -1;

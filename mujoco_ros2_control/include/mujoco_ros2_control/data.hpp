@@ -89,12 +89,18 @@ struct InterfaceData
  * @param has_pos_pid Boolean flag indicating if a position PID controller is configured.
  * @param has_vel_pid Boolean flag indicating if a velocity PID controller is configured.
  */
+// Custom interface names for kp/kd gains (matching ros2_control pattern)
+constexpr char HW_IF_KP[] = "kp";
+constexpr char HW_IF_KD[] = "kd";
+
 struct MuJoCoActuatorData
 {
   std::string joint_name = "";
   InterfaceData position_interface{ hardware_interface::HW_IF_POSITION };
   InterfaceData velocity_interface{ hardware_interface::HW_IF_VELOCITY };
   InterfaceData effort_interface{ hardware_interface::HW_IF_EFFORT };
+  InterfaceData kp_interface{ HW_IF_KP };
+  InterfaceData kd_interface{ HW_IF_KD };
   std::shared_ptr<control_toolbox::PidROS> pos_pid{ nullptr };
   std::shared_ptr<control_toolbox::PidROS> vel_pid{ nullptr };
   ActuatorType actuator_type{ ActuatorType::UNKNOWN };
@@ -110,6 +116,7 @@ struct MuJoCoActuatorData
   bool is_velocity_pid_control_enabled{ false };
   bool is_velocity_control_enabled{ false };
   bool is_effort_control_enabled{ false };
+  bool is_impedance_control_enabled{ false };  // Uses commanded kp/kd for PD control
   bool has_pos_pid{ false };
   bool has_vel_pid{ false };
 
@@ -118,6 +125,7 @@ struct MuJoCoActuatorData
     position_interface.transmission_passthrough_ = position_interface.state_;
     velocity_interface.transmission_passthrough_ = velocity_interface.state_;
     effort_interface.transmission_passthrough_ = effort_interface.state_;
+    // kp/kd don't have state, only command
   }
 
   void copy_command_from_transmission()
@@ -125,6 +133,7 @@ struct MuJoCoActuatorData
     position_interface.command_ = position_interface.transmission_passthrough_;
     velocity_interface.command_ = velocity_interface.transmission_passthrough_;
     effort_interface.command_ = effort_interface.transmission_passthrough_;
+    // kp/kd commands are set directly, not through transmissions
   }
 
   void copy_command_to_state()
@@ -155,6 +164,8 @@ struct URDFJointData
   InterfaceData position_interface{ hardware_interface::HW_IF_POSITION };
   InterfaceData velocity_interface{ hardware_interface::HW_IF_VELOCITY };
   InterfaceData effort_interface{ hardware_interface::HW_IF_EFFORT };
+  InterfaceData kp_interface{ HW_IF_KP };
+  InterfaceData kd_interface{ HW_IF_KD };
 
   std::vector<std::string> command_interfaces = {};
 
@@ -165,6 +176,7 @@ struct URDFJointData
   bool is_position_control_enabled{ false };
   bool is_velocity_control_enabled{ false };
   bool is_effort_control_enabled{ false };
+  bool is_impedance_control_enabled{ false };  // Uses commanded kp/kd for PD control
 
   void copy_state_from_transmission()
   {

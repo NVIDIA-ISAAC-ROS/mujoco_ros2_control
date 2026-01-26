@@ -26,6 +26,7 @@ find_package(std_msgs REQUIRED)
 find_package(mujoco_ros2_control_msgs REQUIRED)
 find_package(mujoco_ros2_control_plugins REQUIRED)
 find_package(Threads REQUIRED)
+find_package(tf2_ros REQUIRED)
 find_package(transmission_interface REQUIRED)
 find_package(backward_ros REQUIRED)
 find_package(tinyxml2_vendor QUIET)
@@ -186,6 +187,7 @@ PUBLIC
   fmt::fmt
   ${MUJOCO_LIB}
   control_toolbox::control_toolbox
+  tf2_ros::tf2_ros
   Eigen3::Eigen
   realtime_tools::realtime_tools
   ${rosgraph_msgs_TARGETS}

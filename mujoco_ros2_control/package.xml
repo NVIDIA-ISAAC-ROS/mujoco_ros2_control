@@ -29,6 +29,7 @@
   <depend>ros2pkg</depend>
   <depend>geometry_msgs</depend>
   <depend>nav_msgs</depend>
+  <depend>tf2_ros</depend>
   <depend>libglfw3-dev</depend>
   <depend>mujoco_vendor</depend>
   <depend>pluginlib</depend>
