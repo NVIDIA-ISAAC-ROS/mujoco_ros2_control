@@ -36,6 +36,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <unistd.h>
 
 #include <tinyxml2.h>
 #include <unordered_map>
@@ -1073,7 +1074,7 @@ hardware_interface::return_type MujocoSystemInterface::write(const rclcpp::Time&
       const double position_error =
           actuator.position_interface.command_ - control_state_.qpos[actuator.mj_pos_adr];
       const double velocity_error = velocity_command - control_state_.qvel[actuator.mj_vel_adr];
-      control_data->qfrc_applied[actuator.mj_vel_adr] = effort_ff + kp * position_error + kd * velocity_error;
+      control_data->ctrl[actuator.mj_actuator_id] = effort_ff + kp * position_error + kd * velocity_error;
     }
     else if (actuator.is_position_control_enabled)
     {
