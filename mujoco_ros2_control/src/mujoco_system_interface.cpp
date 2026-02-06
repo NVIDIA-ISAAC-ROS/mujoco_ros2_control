@@ -44,6 +44,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <unistd.h>
 
 #include <tinyxml2.h>
 #include <std_msgs/msg/string.hpp>
@@ -1735,7 +1736,7 @@ hardware_interface::return_type MujocoSystemInterface::write(const rclcpp::Time&
       double vel_error = vel_cmd - mj_data_->qvel[actuator.mj_vel_adr];
 
       double effort = effort_ff + kp * pos_error + kd * vel_error;
-      mj_data_control_->qfrc_applied[actuator.mj_vel_adr] = effort;
+      mj_data_control_->ctrl[actuator.mj_actuator_id] = effort;
     }
     else if (actuator.is_position_control_enabled)
     {
