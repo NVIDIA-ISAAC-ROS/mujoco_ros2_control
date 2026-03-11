@@ -94,9 +94,19 @@ class TestFixtureHardwareInterfacesCheck(unittest.TestCase):
         expected_command_interfaces = [
             "joint1/position",
             "joint1/velocity",
+            "joint1/effort",
+            "joint1/kp",
+            "joint1/kd",
             "joint2/position",
             "joint2/velocity",
+            "joint2/effort",
+            "joint2/kp",
+            "joint2/kd",
             "gripper_left_finger_joint/position",
+            "gripper_left_finger_joint/velocity",
+            "gripper_left_finger_joint/effort",
+            "gripper_left_finger_joint/kp",
+            "gripper_left_finger_joint/kd",
         ]
         assert len(available_command_interfaces_names) == len(expected_command_interfaces), (
             f"Expected {len(expected_command_interfaces)} command interfaces, "
