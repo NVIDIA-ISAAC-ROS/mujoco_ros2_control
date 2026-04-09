@@ -2,6 +2,9 @@ cmake_minimum_required(VERSION 3.16)
 
 project(mujoco_ros2_control)
 
+# Allow FetchContent downloads during Debian builds (overrides FETCHCONTENT_FULLY_DISCONNECTED=ON set by debhelper).
+set(FETCHCONTENT_FULLY_DISCONNECTED OFF CACHE BOOL "" FORCE)
+
 find_package(ros2_control_cmake REQUIRED)
 
 # find dependencies
