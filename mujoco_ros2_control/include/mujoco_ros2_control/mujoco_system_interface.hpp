@@ -305,6 +305,11 @@ private:
   std::shared_ptr<rclcpp::Publisher<rosgraph_msgs::msg::Clock>> clock_publisher_;
   realtime_tools::RealtimePublisher<rosgraph_msgs::msg::Clock>::SharedPtr clock_realtime_publisher_;
 
+  // Accumulated time offset to keep published clock monotonic across sim resets.
+  // mj_resetData sets mj_data_->time to 0; we add this offset so /clock never
+  // goes backward.
+  double clock_offset_{0.0};
+
   // Reset service to reset simulation to initial state
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr reset_service_;
 

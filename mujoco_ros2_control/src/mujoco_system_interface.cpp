@@ -2580,6 +2580,11 @@ void MujocoSystemInterface::reset_simulation()
 {
   const std::unique_lock<std::recursive_mutex> lock(*sim_mutex_);
 
+  // Accumulate current sim time so the published /clock stays monotonic.
+  // mj_resetData will set mj_data_->time to 0, but publish_clock() adds
+  // clock_offset_ so consumers never see a backward jump.
+  clock_offset_ += mj_data_->time;
+
   // Reset MuJoCo data to initial state - this resets qpos to qpos0 (model defaults),
   // qvel to zero, time to zero, and clears all other state.
   mj_resetData(mj_model_, mj_data_);
@@ -2758,7 +2763,7 @@ void MujocoSystemInterface::PhysicsLoop()
 
 void MujocoSystemInterface::publish_clock()
 {
-  auto sim_time = mj_data_->time;
+  const double sim_time = mj_data_->time + clock_offset_;
   int32_t sim_time_sec = static_cast<int32_t>(std::floor(sim_time));
   uint32_t sim_time_nanosec = static_cast<uint32_t>((sim_time - sim_time_sec) * 1e9);
   rclcpp::Time sim_time_ros(sim_time_sec, sim_time_nanosec, RCL_ROS_TIME);

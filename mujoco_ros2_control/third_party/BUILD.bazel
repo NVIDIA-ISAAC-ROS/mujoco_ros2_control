@@ -1,3 +1,0 @@
-# Marker BUILD file for the third_party package.
-# The actual build rules for external dependencies are in *.BUILD.bazel files
-# referenced by the http_archive / git_repository rules in include.MODULE.bazel.
