@@ -61,6 +61,13 @@ public:
    * @brief Cleanup the plugin
    */
   virtual void cleanup() = 0;
+
+  /**
+   * @brief Called when the simulation world is reset (e.g. Backspace in the viewer).
+   * @note Override to clear any accumulated state (e.g. integrators) that should not
+   *       carry over across resets.
+   */
+  virtual void reset() {}
 };
 
 }  // namespace mujoco_ros2_control_plugins

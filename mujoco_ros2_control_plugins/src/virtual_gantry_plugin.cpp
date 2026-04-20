@@ -21,13 +21,13 @@ namespace mujoco_ros2_control_plugins
 {
 
 bool VirtualGantryPlugin::init(
-  rclcpp::Node::SharedPtr node, const mjModel * model, mjData * data)
+  rclcpp::Node::SharedPtr node, const mjModel * model, mjData * /*data*/)
 {
   node_ = node;
 
-  // Parameters are read from the parent node's "mujoco_plugins.<plugin_name>.*" namespace,
-  // which is already declared via automatically_declare_parameters_from_overrides. We access
-  // them through the shared NodeParametersInterface to bypass sub-namespace prepending.
+  // Parameters live in the parent node's "mujoco_plugins.<plugin_name>.*" namespace,
+  // declared via automatically_declare_parameters_from_overrides. Access them through
+  // the NodeParametersInterface directly to bypass sub-namespace prepending.
   const std::string prefix = "mujoco_plugins." + node->get_sub_namespace() + ".";
   auto params = node->get_node_parameters_interface();
 
@@ -48,19 +48,11 @@ bool VirtualGantryPlugin::init(
     return false;
   }
 
-  // Capture spawn position as the hold target.
-  target_pos_ = {{
-    data->xpos[body_id_ * 3 + 0],
-    data->xpos[body_id_ * 3 + 1],
-    data->xpos[body_id_ * 3 + 2],
-  }};
-
+  // Spawn position is captured on the first update() call, not here, to avoid
+  // a race with mj_forward() which runs in a separate physics thread.
   RCLCPP_INFO(node_->get_logger(),
-              "VirtualGantryPlugin: holding '%s' (id=%d) at [%.3f, %.3f, %.3f], "
-              "kp=%.1f, kd=%.1f",
-              body_name_.c_str(), body_id_,
-              target_pos_[0], target_pos_[1], target_pos_[2],
-              kp_pos_, kd_pos_);
+              "VirtualGantryPlugin: will hold '%s' (id=%d) at spawn position, kp=%.1f kd=%.1f",
+              body_name_.c_str(), body_id_, kp_pos_, kd_pos_);
 
   enable_srv_ = node_->create_service<mujoco_ros2_control_msgs::srv::SetGantryEnabled>(
     "set_gantry_enabled",
@@ -96,11 +88,23 @@ void VirtualGantryPlugin::update(const mjModel * /*model*/, mjData * data)
 {
   std::lock_guard<std::mutex> lock(target_mutex_);
 
+  // Defer spawn-position capture to the first update so mj_forward() has already run.
+  if (!spawn_pos_captured_) {
+    target_pos_ = {{
+      data->xpos[body_id_ * 3 + 0],
+      data->xpos[body_id_ * 3 + 1],
+      data->xpos[body_id_ * 3 + 2],
+    }};
+    spawn_pos_captured_ = true;
+    RCLCPP_INFO(node_->get_logger(),
+                "VirtualGantryPlugin: holding '%s' at [%.3f, %.3f, %.3f]",
+                body_name_.c_str(), target_pos_[0], target_pos_[1], target_pos_[2]);
+  }
+
   if (!enabled_) {
-    // Clear any residual forces when disabled.
-    data->xfrc_applied[body_id_ * 6 + 3] = 0.0;
-    data->xfrc_applied[body_id_ * 6 + 4] = 0.0;
-    data->xfrc_applied[body_id_ * 6 + 5] = 0.0;
+    data->xfrc_applied[body_id_ * 6 + 0] = 0.0;
+    data->xfrc_applied[body_id_ * 6 + 1] = 0.0;
+    data->xfrc_applied[body_id_ * 6 + 2] = 0.0;
     return;
   }
 
@@ -109,13 +113,20 @@ void VirtualGantryPlugin::update(const mjModel * /*model*/, mjData * data)
   const double vy = data->cvel[body_id_ * 6 + 4];
   const double vz = data->cvel[body_id_ * 6 + 5];
 
-  // PD forces: spring pulls toward target, damper opposes velocity.
-  data->xfrc_applied[body_id_ * 6 + 3] =
+  // xfrc_applied layout: [force(3), torque(3)] per body — write forces at +0..+2.
+  // cvel layout: [angular(3), linear(3)] per body — read linear velocity from +3..+5.
+  data->xfrc_applied[body_id_ * 6 + 0] =
     kp_pos_ * (target_pos_[0] - data->xpos[body_id_ * 3 + 0]) - kd_pos_ * vx;
-  data->xfrc_applied[body_id_ * 6 + 4] =
+  data->xfrc_applied[body_id_ * 6 + 1] =
     kp_pos_ * (target_pos_[1] - data->xpos[body_id_ * 3 + 1]) - kd_pos_ * vy;
-  data->xfrc_applied[body_id_ * 6 + 5] =
+  data->xfrc_applied[body_id_ * 6 + 2] =
     kp_pos_ * (target_pos_[2] - data->xpos[body_id_ * 3 + 2]) - kd_pos_ * vz;
+}
+
+void VirtualGantryPlugin::reset()
+{
+  std::lock_guard<std::mutex> lock(target_mutex_);
+  spawn_pos_captured_ = false;
 }
 
 void VirtualGantryPlugin::cleanup()

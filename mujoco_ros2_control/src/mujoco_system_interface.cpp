@@ -2896,6 +2896,12 @@ void MujocoSystemInterface::reset_simulation_state(bool fill_initial_state)
     joint.velocity_interface.command_ = 0.0;
     joint.effort_interface.command_ = 0.0;
   }
+
+  // Notify plugins so they can clear accumulated state (e.g. integrators).
+  for (auto& plugin : plugin_instances_)
+  {
+    plugin->reset();
+  }
 }
 
 void MujocoSystemInterface::reset_world_callback(
@@ -3123,6 +3129,7 @@ void MujocoSystemInterface::PhysicsLoop()
             // Copy data to the control
             mju_copy(mj_data_->ctrl, mj_data_control_->ctrl, static_cast<int>(mj_model_->nu));
             mju_copy(mj_data_->qfrc_applied, mj_data_control_->qfrc_applied, static_cast<int>(mj_model_->nu));
+            mju_copy(mj_data_->xfrc_applied, mj_data_control_->xfrc_applied, 6 * static_cast<int>(mj_model_->nbody));
             // run single step, let next iteration deal with timing
             mj_step(mj_model_, mj_data_);
 
@@ -3175,6 +3182,7 @@ void MujocoSystemInterface::PhysicsLoop()
               // Copy data to the control
               mju_copy(mj_data_->ctrl, mj_data_control_->ctrl, static_cast<int>(mj_model_->nu));
               mju_copy(mj_data_->qfrc_applied, mj_data_control_->qfrc_applied, static_cast<int>(mj_model_->nu));
+              mju_copy(mj_data_->xfrc_applied, mj_data_control_->xfrc_applied, 6 * static_cast<int>(mj_model_->nbody));
               // call mj_step
               mj_step(mj_model_, mj_data_);
 
@@ -3231,6 +3239,7 @@ void MujocoSystemInterface::PhysicsLoop()
           {
             mju_copy(mj_data_->ctrl, mj_data_control_->ctrl, static_cast<int>(mj_model_->nu));
             mju_copy(mj_data_->qfrc_applied, mj_data_control_->qfrc_applied, static_cast<int>(mj_model_->nu));
+            mju_copy(mj_data_->xfrc_applied, mj_data_control_->xfrc_applied, 6 * static_cast<int>(mj_model_->nbody));
             mj_step(mj_model_, mj_data_);
             publish_clock();
 

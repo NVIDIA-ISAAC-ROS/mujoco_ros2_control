@@ -27,14 +27,18 @@
 namespace mujoco_ros2_control_plugins
 {
 
-// PD spring-damper that holds a body at a fixed world-frame position.
-// Acts as a virtual gantry: enabled by default, disabled once the policy is stable.
-// The hold target is captured from the body's position at simulation startup.
+// PD spring-damper that holds a body at a fixed world-frame XYZ position.
+// Intended as a safety net during policy startup: keeps a humanoid robot upright
+// while joints are uncontrolled, without interfering once the policy is active.
+// Enable/disable and retarget at runtime via the set_gantry_enabled /
+// set_gantry_target ROS 2 services. The hold position is captured automatically
+// from the body's world-frame coordinates on the first simulation step.
 class VirtualGantryPlugin : public MuJoCoROS2ControlPluginBase
 {
 public:
-  bool init(rclcpp::Node::SharedPtr node, const mjModel * model, mjData * data) override;
+  bool init(rclcpp::Node::SharedPtr node, const mjModel * model, mjData * /*data*/) override;
   void update(const mjModel * model, mjData * data) override;
+  void reset() override;
   void cleanup() override;
 
 private:
@@ -43,13 +47,14 @@ private:
   std::string body_name_{"torso_link"};
   int body_id_{-1};
 
-  double kp_pos_{200.0};
-  double kd_pos_{20.0};
+  double kp_pos_{10000.0};
+  double kd_pos_{3000.0};
 
   std::array<double, 3> target_pos_{};
   std::mutex target_mutex_;
 
   bool enabled_{true};
+  bool spawn_pos_captured_{false};
 
   rclcpp::Service<mujoco_ros2_control_msgs::srv::SetGantryEnabled>::SharedPtr enable_srv_;
   rclcpp::Service<mujoco_ros2_control_msgs::srv::SetGantryTarget>::SharedPtr target_srv_;
