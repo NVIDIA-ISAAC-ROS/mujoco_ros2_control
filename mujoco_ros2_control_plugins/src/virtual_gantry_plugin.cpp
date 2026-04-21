@@ -57,7 +57,7 @@ bool VirtualGantryPlugin::init(
     const auto v = params->get_parameter(prefix + "body_offset")
                      .get_parameter_value().get<std::vector<double>>();
     if (v.size() == 3) {
-      body_offset_ = {v[0], v[1], v[2]};
+      body_offset_ = {{v[0], v[1], v[2]}};
     }
   }
 
@@ -169,7 +169,7 @@ void VirtualGantryPlugin::update(const mjModel * model, mjData * data)
 
   // --- Capture anchor on first step after (re-)enable ----------------------
   if (!spawn_pos_captured_) {
-    anchor_pos_ = {attach_pos[0], attach_pos[1], attach_pos[2] + anchor_height_};
+    anchor_pos_ = {{attach_pos[0], attach_pos[1], attach_pos[2] + anchor_height_}};
     spawn_pos_captured_ = true;
     RCLCPP_INFO(node_->get_logger(),
                 "VirtualGantryPlugin: anchor at [%.3f, %.3f, %.3f], rope_length=%.2f m",

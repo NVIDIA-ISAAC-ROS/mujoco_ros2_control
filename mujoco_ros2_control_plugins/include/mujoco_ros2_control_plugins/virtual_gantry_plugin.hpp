@@ -56,7 +56,7 @@ private:
   int body_id_{-1};
 
   // Offset from the body CoM to the rope attachment point, expressed in the body frame.
-  std::array<double, 3> body_offset_{0.0, 0.0, 0.0};
+  std::array<double, 3> body_offset_{{0.0, 0.0, 0.0}};
 
   // Rope tension spring/damper gains.
   double kp_pos_{50000.0};
