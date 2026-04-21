@@ -19,6 +19,7 @@
 
 #include "mujoco_ros2_control/mujoco_system_interface.hpp"
 #include "array_safety.h"
+#include "mujoco_ros2_control_plugins/gantry_keyboard_state.hpp"
 
 #include <fmt/compile.h>
 #include <fmt/ranges.h>
@@ -269,8 +270,26 @@ protected:
       return;
     }
 
+    // Toggle gantry on/off with 'G'.
+    if (key == GLFW_KEY_G && act == GLFW_PRESS) {
+      mujoco_ros2_control_plugins::GantryKeyboardState::get().toggle_counter.fetch_add(
+        1, std::memory_order_relaxed);
+      return;
+    }
+
     // Forward all other keys so normal UI behaviour is preserved.
     mj::GlfwAdapter::OnKey(key, scancode, act);
+  }
+
+  void OnScroll(double xoffset, double yoffset) override
+  {
+    // Shift+scroll adjusts the gantry rope length (5 cm per notch).
+    if (IsShiftKeyPressed()) {
+      mujoco_ros2_control_plugins::GantryKeyboardState::get().rope_scroll_ticks.fetch_add(
+        static_cast<int>(yoffset), std::memory_order_relaxed);
+      return;  // suppress camera zoom while adjusting rope length
+    }
+    mj::GlfwAdapter::OnScroll(xoffset, yoffset);
   }
 
 private:
