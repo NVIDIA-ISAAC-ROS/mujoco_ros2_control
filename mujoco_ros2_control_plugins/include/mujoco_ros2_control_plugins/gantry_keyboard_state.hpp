@@ -20,7 +20,7 @@
 namespace mujoco_ros2_control_plugins
 {
 
-// Singleton that bridges the GLFW UI thread (key/scroll events) and the
+// Singleton that bridges the GLFW UI thread (key events) and the
 // VirtualGantryPlugin physics thread.  All fields are atomic — no mutex needed.
 struct GantryKeyboardState
 {
@@ -28,9 +28,10 @@ struct GantryKeyboardState
   // value to detect a toggle edge without consuming the count.
   std::atomic<int> toggle_counter{0};
 
-  // Accumulated Shift+scroll ticks.  Plugin exchanges to 0 after reading.
-  // Positive = scroll up (lengthen rope), negative = scroll down (shorten).
-  std::atomic<int> rope_scroll_ticks{0};
+  // Accumulated rope-length ticks from '['/']' key presses.
+  // Plugin exchanges to 0 after reading.
+  // Positive = lengthen rope, negative = shorten.
+  std::atomic<int> rope_length_ticks{0};
 
   // Defined in gantry_keyboard_state.cpp so there is exactly one instance across
   // all shared libraries (mujoco_ros2_control_plugins + mujoco_ros2_control).

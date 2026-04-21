@@ -277,19 +277,23 @@ protected:
       return;
     }
 
+    // '[' = shorten rope, ']' = lengthen rope (5 cm per press; hold for repeat).
+    // Note: GlfwAdapter's GLFW scroll callback calls PlatformUIAdapter::OnScroll via
+    // a devirtualized direct call, so OnScroll overrides cannot intercept scroll events.
+    // Keyboard-based adjustment here is the reliable alternative.
+    if (key == GLFW_KEY_LEFT_BRACKET && (act == GLFW_PRESS || act == GLFW_REPEAT)) {
+      mujoco_ros2_control_plugins::GantryKeyboardState::get().rope_length_ticks.fetch_add(
+        -1, std::memory_order_relaxed);
+      return;
+    }
+    if (key == GLFW_KEY_RIGHT_BRACKET && (act == GLFW_PRESS || act == GLFW_REPEAT)) {
+      mujoco_ros2_control_plugins::GantryKeyboardState::get().rope_length_ticks.fetch_add(
+        1, std::memory_order_relaxed);
+      return;
+    }
+
     // Forward all other keys so normal UI behaviour is preserved.
     mj::GlfwAdapter::OnKey(key, scancode, act);
-  }
-
-  void OnScroll(double xoffset, double yoffset) override
-  {
-    // Shift+scroll adjusts the gantry rope length (5 cm per notch).
-    if (IsShiftKeyPressed()) {
-      mujoco_ros2_control_plugins::GantryKeyboardState::get().rope_scroll_ticks.fetch_add(
-        static_cast<int>(yoffset), std::memory_order_relaxed);
-      return;  // suppress camera zoom while adjusting rope length
-    }
-    mj::GlfwAdapter::OnScroll(xoffset, yoffset);
   }
 
 private:

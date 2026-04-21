@@ -145,9 +145,9 @@ void VirtualGantryPlugin::update(const mjModel * model, mjData * data)
                 enabled_ ? "enabled" : "disabled");
   }
 
-  // --- Rope length adjustment (Shift+scroll) --------------------------------
+  // --- Rope length adjustment ('[' / ']' keys) -------------------------------
   const int scroll_ticks =
-    GantryKeyboardState::get().rope_scroll_ticks.exchange(0, std::memory_order_relaxed);
+    GantryKeyboardState::get().rope_length_ticks.exchange(0, std::memory_order_relaxed);
   if (scroll_ticks != 0) {
     rope_length_ = std::max(0.1, rope_length_ + scroll_ticks * 0.05);
     RCLCPP_INFO(node_->get_logger(), "VirtualGantryPlugin: rope_length=%.3f m", rope_length_);
