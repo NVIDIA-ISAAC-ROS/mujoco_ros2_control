@@ -65,7 +65,7 @@ private:
 
   // World-frame Z of the fixed anchor point.  Plugin sets anchor_pos_[2] = anchor_z_world_
   // on every (re-)enable, regardless of where the robot currently is.
-  double anchor_z_world_{1.7};
+  double anchor_z_world_{1.5};
   std::array<double, 3> anchor_pos_{};
 
   // Rope length at spawn = |anchor_z_world_ - attach_z|; adjustable at runtime via Shift+scroll.
