@@ -32,11 +32,9 @@ struct GantryKeyboardState
   // Positive = scroll up (lengthen rope), negative = scroll down (shorten).
   std::atomic<int> rope_scroll_ticks{0};
 
-  static GantryKeyboardState & get()
-  {
-    static GantryKeyboardState instance;
-    return instance;
-  }
+  // Defined in gantry_keyboard_state.cpp so there is exactly one instance across
+  // all shared libraries (mujoco_ros2_control_plugins + mujoco_ros2_control).
+  static GantryKeyboardState & get();
 
 private:
   GantryKeyboardState() = default;

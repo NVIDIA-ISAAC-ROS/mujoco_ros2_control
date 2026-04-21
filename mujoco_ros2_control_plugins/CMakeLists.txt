@@ -26,6 +26,7 @@ endif()
 
 # Build the plugin library
 add_library(mujoco_ros2_control_plugins SHARED
+  src/gantry_keyboard_state.cpp
   src/heartbeat_publisher_plugin.cpp
   src/virtual_gantry_plugin.cpp
 )

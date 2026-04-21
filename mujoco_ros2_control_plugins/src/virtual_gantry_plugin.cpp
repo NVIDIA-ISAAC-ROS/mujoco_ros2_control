@@ -50,8 +50,7 @@ bool VirtualGantryPlugin::init(
   get_string("body_name", body_name_);
   get_double("kp_pos", kp_pos_);
   get_double("kd_pos", kd_pos_);
-  get_double("anchor_height", anchor_height_);
-  get_double("rope_length", rope_length_);
+  get_double("anchor_z", anchor_z_world_);
 
   if (params->has_parameter(prefix + "body_offset")) {
     const auto v = params->get_parameter(prefix + "body_offset")
@@ -100,9 +99,9 @@ bool VirtualGantryPlugin::init(
   }
 
   RCLCPP_INFO(node_->get_logger(),
-              "VirtualGantryPlugin: body '%s' (id=%d), anchor_height=%.2f, rope_length=%.2f, "
+              "VirtualGantryPlugin: body '%s' (id=%d), anchor_z=%.2f, "
               "offset=[%.3f,%.3f,%.3f], kp=%.0f, kd=%.0f",
-              body_name_.c_str(), body_id_, anchor_height_, rope_length_,
+              body_name_.c_str(), body_id_, anchor_z_world_,
               body_offset_[0], body_offset_[1], body_offset_[2], kp_pos_, kd_pos_);
 
   enable_srv_ = node_->create_service<mujoco_ros2_control_msgs::srv::SetGantryEnabled>(
@@ -169,10 +168,13 @@ void VirtualGantryPlugin::update(const mjModel * model, mjData * data)
 
   // --- Capture anchor on first step after (re-)enable ----------------------
   if (!spawn_pos_captured_) {
-    anchor_pos_ = {{attach_pos[0], attach_pos[1], attach_pos[2] + anchor_height_}};
+    // Anchor XY follows the attachment point; Z is fixed in world frame.
+    anchor_pos_ = {{attach_pos[0], attach_pos[1], anchor_z_world_}};
+    // Rope is just taut at spawn: length = vertical gap between anchor and attachment.
+    rope_length_ = std::abs(anchor_z_world_ - attach_pos[2]);
     spawn_pos_captured_ = true;
     RCLCPP_INFO(node_->get_logger(),
-                "VirtualGantryPlugin: anchor at [%.3f, %.3f, %.3f], rope_length=%.2f m",
+                "VirtualGantryPlugin: anchor at [%.3f, %.3f, %.3f], rope_length=%.3f m",
                 anchor_pos_[0], anchor_pos_[1], anchor_pos_[2], rope_length_);
   }
 

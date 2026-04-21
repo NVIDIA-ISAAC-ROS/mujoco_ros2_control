@@ -33,9 +33,10 @@ namespace mujoco_ros2_control_plugins
 // tension force is applied toward the anchor.  No lateral force is ever applied,
 // so the robot swings freely like a pendulum at all times.
 //
-// The anchor spawns anchor_height_ metres directly above the attachment point the
-// first time update() runs (and after every re-enable).  The rope_length_ defaults
-// to anchor_height_ so the rope is just taut at spawn.
+// On (re-)enable the anchor is placed at [attach_xy, anchor_z_world_] — the XY
+// tracks the current attachment point but the Z is fixed in world frame (param
+// anchor_z, default 1.7 m).  rope_length_ is computed as |anchor_z - attach_z|
+// at spawn so the rope is just taut at the moment of activation.
 //
 // 'G' in the MuJoCo viewer toggles the gantry on/off.
 // Shift+scroll adjusts rope_length_ at 5 cm per scroll notch.
@@ -62,12 +63,13 @@ private:
   double kp_pos_{50000.0};
   double kd_pos_{5000.0};
 
-  // Fixed anchor position (world frame); set once on first update after (re-)enable.
-  double anchor_height_{2.0};
+  // World-frame Z of the fixed anchor point.  Plugin sets anchor_pos_[2] = anchor_z_world_
+  // on every (re-)enable, regardless of where the robot currently is.
+  double anchor_z_world_{1.7};
   std::array<double, 3> anchor_pos_{};
 
-  // Maximum rope length.  Defaults to anchor_height_ so the rope is taut at spawn.
-  double rope_length_{2.0};
+  // Rope length at spawn = |anchor_z_world_ - attach_z|; adjustable at runtime via Shift+scroll.
+  double rope_length_{0.0};
 
   bool enabled_{true};
   bool spawn_pos_captured_{false};
