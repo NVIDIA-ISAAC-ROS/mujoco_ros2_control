@@ -152,6 +152,7 @@ add_library(mujoco_ros2_control SHARED
     src/mujoco_system_interface.cpp
     src/mujoco_cameras.cpp
     src/mujoco_lidar.cpp
+    src/gantry_keyboard_state.cpp
 )
 # Ensure MuJoCo library can be found at runtime regardless of how it was installed above.
 # mujoco_vendor installs libmujoco.so under opt/mujoco_vendor/lib/ relative to the
@@ -188,7 +189,6 @@ PRIVATE
   Threads::Threads
   lodepng
   glfw
-  mujoco_ros2_control_plugins::mujoco_ros2_control_plugins
 )
 # Note: the transmissions_interface must NOT be statically linked against the library, only headers
 # should be used. Otherwise it will be loaded by the linker at process startup and its

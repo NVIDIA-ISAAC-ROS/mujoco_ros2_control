@@ -17,10 +17,11 @@
 namespace mujoco_ros2_control_plugins
 {
 
-// Defined here (not in the header) so there is exactly one instance across all
-// shared libraries that dlopen this package (mujoco_ros2_control_plugins and
-// mujoco_ros2_control both link it; a header-inline static would produce two
-// independent instances because of -fvisibility=hidden).
+// Defined in libmujoco_ros2_control.so (not in the plugins DSO) so there is
+// exactly one instance. visibility("default") ensures the symbol is exported
+// even when -fvisibility=hidden is active, so the plugins DSO can resolve it
+// from the global symbol table at dlopen time.
+__attribute__((visibility("default")))
 GantryKeyboardState & GantryKeyboardState::get()
 {
   static GantryKeyboardState instance;
