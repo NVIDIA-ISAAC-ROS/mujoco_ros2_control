@@ -188,6 +188,7 @@ PRIVATE
   Threads::Threads
   lodepng
   glfw
+  mujoco_ros2_control_plugins::mujoco_ros2_control_plugins
 )
 # Note: the transmissions_interface must NOT be statically linked against the library, only headers
 # should be used. Otherwise it will be loaded by the linker at process startup and its
