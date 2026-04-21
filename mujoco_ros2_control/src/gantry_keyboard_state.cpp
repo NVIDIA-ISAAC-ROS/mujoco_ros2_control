@@ -21,8 +21,7 @@ namespace mujoco_ros2_control_plugins
 // exactly one instance. visibility("default") ensures the symbol is exported
 // even when -fvisibility=hidden is active, so the plugins DSO can resolve it
 // from the global symbol table at dlopen time.
-__attribute__((visibility("default")))
-GantryKeyboardState & GantryKeyboardState::get()
+__attribute__((visibility("default"))) GantryKeyboardState& GantryKeyboardState::get()
 {
   static GantryKeyboardState instance;
   return instance;

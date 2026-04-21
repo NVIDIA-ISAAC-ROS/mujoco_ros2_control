@@ -67,37 +67,6 @@ bool VirtualGantryPlugin::init(
     return false;
   }
 
-  // Resolve optional mocap visual bodies.
-  auto resolve_mocap = [&](const std::string & param_key, int & mocap_id_out) {
-    std::string name;
-    get_string(param_key, name);
-    if (name.empty()) {return;}
-    const int bid = mj_name2id(model, mjOBJ_BODY, name.c_str());
-    if (bid >= 0 && model->body_mocapid[bid] >= 0) {
-      mocap_id_out = model->body_mocapid[bid];
-      RCLCPP_INFO(node_->get_logger(), "VirtualGantryPlugin: %s '%s' (mocap_id=%d)",
-                  param_key.c_str(), name.c_str(), mocap_id_out);
-    } else {
-      RCLCPP_WARN(node_->get_logger(),
-                  "VirtualGantryPlugin: '%s' (param %s) not found or not a mocap body",
-                  name.c_str(), param_key.c_str());
-    }
-  };
-  resolve_mocap("anchor_visual_body", anchor_mocap_id_);
-  resolve_mocap("rope_visual_body", rope_mocap_id_);
-
-  // Find the rope capsule geom for dynamic half-length updates.
-  if (rope_mocap_id_ >= 0) {
-    std::string rope_name;
-    get_string("rope_visual_body", rope_name);
-    if (!rope_name.empty()) {
-      const int bid = mj_name2id(model, mjOBJ_BODY, rope_name.c_str());
-      if (bid >= 0 && model->body_geomnum[bid] > 0) {
-        rope_geom_id_ = model->body_geomadr[bid];
-      }
-    }
-  }
-
   RCLCPP_INFO(node_->get_logger(),
               "VirtualGantryPlugin: body '%s' (id=%d), anchor_z=%.2f, "
               "offset=[%.3f,%.3f,%.3f], kp=%.0f, kd=%.0f",
@@ -128,7 +97,7 @@ bool VirtualGantryPlugin::init(
   return true;
 }
 
-void VirtualGantryPlugin::update(const mjModel * model, mjData * data)
+void VirtualGantryPlugin::update(const mjModel * /*model*/, mjData * data)
 {
   std::lock_guard<std::mutex> lock(state_mutex_);
 
@@ -149,7 +118,7 @@ void VirtualGantryPlugin::update(const mjModel * model, mjData * data)
   const int scroll_ticks =
     GantryKeyboardState::get().rope_length_ticks.exchange(0, std::memory_order_relaxed);
   if (scroll_ticks != 0) {
-    rope_length_ = std::max(0.1, rope_length_ + scroll_ticks * 0.05);
+    rope_length_ = std::max(0.1, rope_length_ + scroll_ticks * 0.005);
     RCLCPP_INFO(node_->get_logger(), "VirtualGantryPlugin: rope_length=%.3f m", rope_length_);
   }
 
@@ -178,61 +147,11 @@ void VirtualGantryPlugin::update(const mjModel * model, mjData * data)
                 anchor_pos_[0], anchor_pos_[1], anchor_pos_[2], rope_length_);
   }
 
-  // --- Anchor visual --------------------------------------------------------
-  if (anchor_mocap_id_ >= 0) {
-    data->mocap_pos[anchor_mocap_id_ * 3 + 0] = anchor_pos_[0];
-    data->mocap_pos[anchor_mocap_id_ * 3 + 1] = anchor_pos_[1];
-    data->mocap_pos[anchor_mocap_id_ * 3 + 2] = anchor_pos_[2];
-  }
-
-  // --- Rope visual ----------------------------------------------------------
   // Rope vector from anchor to attachment point.
   const double dx = attach_pos[0] - anchor_pos_[0];
   const double dy = attach_pos[1] - anchor_pos_[1];
   const double dz = attach_pos[2] - anchor_pos_[2];
   const double rope_dist = std::sqrt(dx * dx + dy * dy + dz * dz);
-
-  if (rope_mocap_id_ >= 0 && rope_dist > 1e-6) {
-    // Midpoint between anchor and attachment.
-    data->mocap_pos[rope_mocap_id_ * 3 + 0] = (anchor_pos_[0] + attach_pos[0]) * 0.5;
-    data->mocap_pos[rope_mocap_id_ * 3 + 1] = (anchor_pos_[1] + attach_pos[1]) * 0.5;
-    data->mocap_pos[rope_mocap_id_ * 3 + 2] = (anchor_pos_[2] + attach_pos[2]) * 0.5;
-
-    // Normalised direction: anchor → attachment.
-    const double ndx = dx / rope_dist;
-    const double ndy = dy / rope_dist;
-    const double ndz = dz / rope_dist;
-
-    // Quaternion aligning capsule Z-axis with the anchor→attachment direction.
-    // Rotation axis = cross([0,0,1], [ndx,ndy,ndz]) = [-ndy, ndx, 0].
-    const double ax = -ndy, ay = ndx;
-    const double axis_len = std::sqrt(ax * ax + ay * ay);
-    double qw, qx, qy, qz;
-    if (axis_len < 1e-6) {
-      // Direction is (anti-)parallel to Z.
-      if (ndz > 0.0) {qw = 1.0; qx = 0.0; qy = 0.0; qz = 0.0;}
-      else           {qw = 0.0; qx = 1.0; qy = 0.0; qz = 0.0;}
-    } else {
-      const double clamped = ndz > 1.0 ? 1.0 : ndz < -1.0 ? -1.0 : ndz;
-      const double angle = std::acos(clamped);
-      const double sa = std::sin(angle * 0.5);
-      qw = std::cos(angle * 0.5);
-      qx = (ax / axis_len) * sa;
-      qy = (ay / axis_len) * sa;
-      qz = 0.0;
-    }
-    data->mocap_quat[rope_mocap_id_ * 4 + 0] = qw;
-    data->mocap_quat[rope_mocap_id_ * 4 + 1] = qx;
-    data->mocap_quat[rope_mocap_id_ * 4 + 2] = qy;
-    data->mocap_quat[rope_mocap_id_ * 4 + 3] = qz;
-
-    // Update capsule half-length to match the current anchor–attachment distance.
-    // const_cast is intentional: geom_size is a display property; safe to
-    // modify at runtime without affecting physics.
-    if (rope_geom_id_ >= 0) {
-      const_cast<mjModel *>(model)->geom_size[rope_geom_id_ * 3 + 1] = rope_dist * 0.5;
-    }
-  }
 
   // --- Rope constraint force ------------------------------------------------
   // Clear previously applied forces before writing new values.
@@ -240,23 +159,37 @@ void VirtualGantryPlugin::update(const mjModel * model, mjData * data)
     data->xfrc_applied[body_id_ * 6 + i] = 0.0;
   }
 
-  if (!enabled_ || rope_dist <= rope_length_) {
-    return;  // rope slack or gantry disabled — no force applied
+  if (!enabled_ || rope_dist < 1e-6 || rope_dist <= rope_length_) {
+    // Rope is slack or gantry disabled: reset FD state so first taut step has no stale spike.
+    rope_dist_prev_ = -1.0;
+    rope_dist_dot_ = 0.0;
+    last_update_time_ = data->time;
+    return;
   }
 
-  // The rope is taut: apply a radial-only tension force toward the anchor.
-  // No tangential component is applied, so the robot swings freely like a pendulum.
+  // Finite-difference rope-extension rate (taut branch only), EMA-smoothed.
+  // Raw d(rope_dist)/dt over 2 ms is noisy due to contact/joint vibrations; the
+  // EMA (α≈0.2, τ≈10 ms) keeps low-frequency fall/bounce dynamics while
+  // filtering out high-frequency noise that would otherwise cause large damp spikes.
+  if (rope_dist_prev_ >= 0.0 && last_update_time_ >= 0.0) {
+    const double dt = data->time - last_update_time_;
+    if (dt > 1e-9) {
+      const double raw_dot = (rope_dist - rope_dist_prev_) / dt;
+      const double alpha = std::min(1.0, dt / 0.01);  // τ = 10 ms
+      rope_dist_dot_ = alpha * raw_dot + (1.0 - alpha) * rope_dist_dot_;
+    }
+  }
+  rope_dist_prev_ = rope_dist;
+  last_update_time_ = data->time;
+
   const double rope_dir[3] = {dx / rope_dist, dy / rope_dist, dz / rope_dist};
 
-  // Radial velocity (positive = attachment moving away from anchor).
-  const double vx = data->cvel[body_id_ * 6 + 3];
-  const double vy = data->cvel[body_id_ * 6 + 4];
-  const double vz = data->cvel[body_id_ * 6 + 5];
-  const double vel_radial = vx * rope_dir[0] + vy * rope_dir[1] + vz * rope_dir[2];
-
-  // Tension spring + one-sided damping (damp only when rope is extending).
+  // Spring always pulls toward anchor when taut; damping only resists extension.
+  // Bidirectional damping (max(0, spring+damp)) silences the spring when contracting
+  // fast, which creates an asymmetric energy cycle and growing oscillations.
   const double extension = rope_dist - rope_length_;
-  const double tension = kp_pos_ * extension + kd_pos_ * std::max(0.0, vel_radial);
+  const double damp = (rope_dist_dot_ > 0.0) ? kd_pos_ * rope_dist_dot_ : 0.0;
+  const double tension = kp_pos_ * extension + damp;
 
   // Force toward anchor (opposite of rope_dir).
   const double Fx = -tension * rope_dir[0];
@@ -283,9 +216,10 @@ void VirtualGantryPlugin::update(const mjModel * model, mjData * data)
 void VirtualGantryPlugin::reset()
 {
   std::lock_guard<std::mutex> lock(state_mutex_);
-  // Re-capture anchor on the next update() so the gantry re-anchors above the
-  // robot's current position after every simulation reset.
   spawn_pos_captured_ = false;
+  rope_dist_prev_ = -1.0;
+  rope_dist_dot_ = 0.0;
+  last_update_time_ = -1.0;
 }
 
 void VirtualGantryPlugin::cleanup()

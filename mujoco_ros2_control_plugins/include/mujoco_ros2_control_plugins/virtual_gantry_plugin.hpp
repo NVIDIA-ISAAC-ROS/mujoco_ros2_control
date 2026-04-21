@@ -44,8 +44,8 @@ namespace mujoco_ros2_control_plugins
 class VirtualGantryPlugin : public MuJoCoROS2ControlPluginBase
 {
 public:
-  bool init(rclcpp::Node::SharedPtr node, const mjModel * model, mjData * data) override;
-  void update(const mjModel * model, mjData * data) override;
+  bool init(rclcpp::Node::SharedPtr node, const mjModel* model, mjData* data) override;
+  void update(const mjModel* model, mjData* data) override;
   void reset() override;
   void cleanup() override;
 
@@ -53,36 +53,37 @@ private:
   rclcpp::Node::SharedPtr node_;
 
   // Target body (attachment point on the robot).
-  std::string body_name_{"torso_link"};
-  int body_id_{-1};
+  std::string body_name_{ "torso_link" };
+  int body_id_{ -1 };
 
   // Offset from the body CoM to the rope attachment point, expressed in the body frame.
-  std::array<double, 3> body_offset_{{0.0, 0.0, 0.0}};
+  std::array<double, 3> body_offset_{ { 0.0, 0.0, 0.0 } };
 
   // Rope tension spring/damper gains.
-  double kp_pos_{50000.0};
-  double kd_pos_{5000.0};
+  double kp_pos_{ 5000.0 };
+  double kd_pos_{ 3000.0 };
 
   // World-frame Z of the fixed anchor point.  Plugin sets anchor_pos_[2] = anchor_z_world_
   // on every (re-)enable, regardless of where the robot currently is.
-  double anchor_z_world_{1.5};
+  double anchor_z_world_{ 1.5 };
   std::array<double, 3> anchor_pos_{};
 
   // Rope length at spawn = |anchor_z_world_ - attach_z|; adjustable at runtime via Shift+scroll.
-  double rope_length_{0.0};
+  double rope_length_{ 0.0 };
 
-  bool enabled_{true};
-  bool spawn_pos_captured_{false};
+  // Finite-difference state for rope-extension-rate damping.
+  // Using d(rope_dist)/dt instead of cvel avoids phase errors when physics runs
+  // faster than the control loop (200 Hz control, 500 Hz physics).
+  // rope_dist_dot_ is an EMA-smoothed derivative (α≈0.2) to filter contact/joint noise.
+  double rope_dist_prev_{ -1.0 };
+  double rope_dist_dot_{ 0.0 };
+  double last_update_time_{ -1.0 };
 
-  // mocap_id for the anchor sphere visual (-1 = not present in model).
-  int anchor_mocap_id_{-1};
-  // mocap_id for the rope capsule visual (-1 = not present in model).
-  int rope_mocap_id_{-1};
-  // geom index of the rope capsule (for dynamic half-length update, -1 = none).
-  int rope_geom_id_{-1};
+  bool enabled_{ true };
+  bool spawn_pos_captured_{ false };
 
   // Last toggle_counter value seen; used to detect 'G' key edges.
-  int last_toggle_count_{0};
+  int last_toggle_count_{ 0 };
 
   std::mutex state_mutex_;
 

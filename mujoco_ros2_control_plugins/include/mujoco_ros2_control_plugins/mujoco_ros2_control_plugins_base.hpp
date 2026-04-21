@@ -67,7 +67,9 @@ public:
    * @note Override to clear any accumulated state (e.g. integrators) that should not
    *       carry over across resets.
    */
-  virtual void reset() {}
+  virtual void reset()
+  {
+  }
 };
 
 }  // namespace mujoco_ros2_control_plugins

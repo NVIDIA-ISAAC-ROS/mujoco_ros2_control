@@ -26,16 +26,16 @@ struct GantryKeyboardState
 {
   // Incremented on each 'G' key press.  Plugin compares against its last-seen
   // value to detect a toggle edge without consuming the count.
-  std::atomic<int> toggle_counter{0};
+  std::atomic<int> toggle_counter{ 0 };
 
   // Accumulated rope-length ticks from '['/']' key presses.
   // Plugin exchanges to 0 after reading.
   // Positive = lengthen rope, negative = shorten.
-  std::atomic<int> rope_length_ticks{0};
+  std::atomic<int> rope_length_ticks{ 0 };
 
   // Defined in gantry_keyboard_state.cpp so there is exactly one instance across
   // all shared libraries (mujoco_ros2_control_plugins + mujoco_ros2_control).
-  static GantryKeyboardState & get();
+  static GantryKeyboardState& get();
 
 private:
   GantryKeyboardState() = default;

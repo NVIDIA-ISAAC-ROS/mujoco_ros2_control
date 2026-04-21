@@ -189,6 +189,7 @@ PRIVATE
   Threads::Threads
   lodepng
   glfw
+  ${CMAKE_DL_LIBS}
 )
 # Note: the transmissions_interface must NOT be statically linked against the library, only headers
 # should be used. Otherwise it will be loaded by the linker at process startup and its
