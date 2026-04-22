@@ -136,15 +136,15 @@ void VirtualGantryPlugin::update(const mjModel * /*model*/, mjData * data)
   }
 
   // --- Capture anchor on first step after (re-)enable ----------------------
-  if (!spawn_pos_captured_) {
+  if (!spawn_pos_captured_)
+  {
     // Anchor XY follows the attachment point; Z is fixed in world frame.
-    anchor_pos_ = {{attach_pos[0], attach_pos[1], anchor_z_world_}};
+    anchor_pos_ = { { attach_pos[0], attach_pos[1], anchor_z_world_ } };
     // Rope is just taut at spawn: length = vertical gap between anchor and attachment.
     rope_length_ = std::abs(anchor_z_world_ - attach_pos[2]);
     spawn_pos_captured_ = true;
-    RCLCPP_INFO(node_->get_logger(),
-                "VirtualGantryPlugin: anchor at [%.3f, %.3f, %.3f], rope_length=%.3f m",
-                anchor_pos_[0], anchor_pos_[1], anchor_pos_[2], rope_length_);
+    RCLCPP_INFO(node_->get_logger(), "VirtualGantryPlugin: anchor at [%.3f, %.3f, %.3f], rope_length=%.3f m",
+                 anchor_pos_[0], anchor_pos_[1], anchor_pos_[2], rope_length_);
   }
 
   // Rope vector from anchor to attachment point.
@@ -155,11 +155,13 @@ void VirtualGantryPlugin::update(const mjModel * /*model*/, mjData * data)
 
   // --- Rope constraint force ------------------------------------------------
   // Clear previously applied forces before writing new values.
-  for (int i = 0; i < 6; ++i) {
+  for (int i = 0; i < 6; ++i)
+  {
     data->xfrc_applied[body_id_ * 6 + i] = 0.0;
   }
 
-  if (!enabled_ || rope_dist < 1e-6 || rope_dist <= rope_length_) {
+  if (!enabled_ || rope_dist < 1e-6 || rope_dist <= rope_length_)
+  {
     // Rope is slack or gantry disabled: reset FD state so first taut step has no stale spike.
     rope_dist_prev_ = -1.0;
     rope_dist_dot_ = 0.0;
@@ -171,9 +173,11 @@ void VirtualGantryPlugin::update(const mjModel * /*model*/, mjData * data)
   // Raw d(rope_dist)/dt over 2 ms is noisy due to contact/joint vibrations; the
   // EMA (α≈0.2, τ≈10 ms) keeps low-frequency fall/bounce dynamics while
   // filtering out high-frequency noise that would otherwise cause large damp spikes.
-  if (rope_dist_prev_ >= 0.0 && last_update_time_ >= 0.0) {
+  if (rope_dist_prev_ >= 0.0 && last_update_time_ >= 0.0)
+  {
     const double dt = data->time - last_update_time_;
-    if (dt > 1e-9) {
+    if (dt > 1e-9)
+    {
       const double raw_dot = (rope_dist - rope_dist_prev_) / dt;
       const double alpha = std::min(1.0, dt / 0.01);  // τ = 10 ms
       rope_dist_dot_ = alpha * raw_dot + (1.0 - alpha) * rope_dist_dot_;
@@ -182,7 +186,7 @@ void VirtualGantryPlugin::update(const mjModel * /*model*/, mjData * data)
   rope_dist_prev_ = rope_dist;
   last_update_time_ = data->time;
 
-  const double rope_dir[3] = {dx / rope_dist, dy / rope_dist, dz / rope_dist};
+  const double rope_dir[3] = { dx / rope_dist, dy / rope_dist, dz / rope_dist };
 
   // Spring always pulls toward anchor when taut; damping only resists extension.
   // Bidirectional damping (max(0, spring+damp)) silences the spring when contracting
@@ -201,12 +205,9 @@ void VirtualGantryPlugin::update(const mjModel * /*model*/, mjData * data)
   data->xfrc_applied[body_id_ * 6 + 2] = Fz;
 
   // Torque correction for off-CoM attachment: τ = offset_world × F.
-  const double ox = xmat[0] * body_offset_[0] + xmat[1] * body_offset_[1]
-                  + xmat[2] * body_offset_[2];
-  const double oy = xmat[3] * body_offset_[0] + xmat[4] * body_offset_[1]
-                  + xmat[5] * body_offset_[2];
-  const double oz = xmat[6] * body_offset_[0] + xmat[7] * body_offset_[1]
-                  + xmat[8] * body_offset_[2];
+  const double ox = xmat[0] * body_offset_[0] + xmat[1] * body_offset_[1] + xmat[2] * body_offset_[2];
+  const double oy = xmat[3] * body_offset_[0] + xmat[4] * body_offset_[1] + xmat[5] * body_offset_[2];
+  const double oz = xmat[6] * body_offset_[0] + xmat[7] * body_offset_[1] + xmat[8] * body_offset_[2];
 
   data->xfrc_applied[body_id_ * 6 + 3] = oy * Fz - oz * Fy;
   data->xfrc_applied[body_id_ * 6 + 4] = oz * Fx - ox * Fz;
@@ -230,6 +231,5 @@ void VirtualGantryPlugin::cleanup()
 
 }  // namespace mujoco_ros2_control_plugins
 
-PLUGINLIB_EXPORT_CLASS(
-  mujoco_ros2_control_plugins::VirtualGantryPlugin,
-  mujoco_ros2_control_plugins::MuJoCoROS2ControlPluginBase)
+PLUGINLIB_EXPORT_CLASS(mujoco_ros2_control_plugins::VirtualGantryPlugin,
+                       mujoco_ros2_control_plugins::MuJoCoROS2ControlPluginBase)

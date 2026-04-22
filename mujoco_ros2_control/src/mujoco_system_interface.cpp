@@ -1536,8 +1536,8 @@ MujocoSystemInterface::perform_command_mode_switch(const std::vector<std::string
         joint_it->is_position_control_enabled = has_position;
         joint_it->is_velocity_control_enabled = has_velocity;
         joint_it->is_effort_control_enabled = has_effort;  // Track effort for feed-forward
-        RCLCPP_INFO(get_logger(), "Joint %s: impedance control enabled (kp/kd with position%s%s)",
-                    joint_name.c_str(), has_velocity ? "/velocity" : "", has_effort ? "/effort_ff" : "");
+        RCLCPP_INFO(get_logger(), "Joint %s: impedance control enabled (kp/kd with position%s%s)", joint_name.c_str(),
+                    has_velocity ? "/velocity" : "", has_effort ? "/effort_ff" : "");
       }
       else if (has_effort)
       {
@@ -2299,9 +2299,9 @@ void MujocoSystemInterface::register_urdf_joints(const hardware_interface::Hardw
         else if (actuator_it->actuator_type == ActuatorType::MOTOR || actuator_it->actuator_type == ActuatorType::CUSTOM)
         {
           // Check if kp/kd interfaces are present (indicating impedance control mode)
-          bool has_impedance_interfaces = std::any_of(
-              command_interface_names.begin(), command_interface_names.end(),
-              [](const std::string& name) { return name == HW_IF_KP || name == HW_IF_KD; });
+          bool has_impedance_interfaces =
+              std::any_of(command_interface_names.begin(), command_interface_names.end(),
+                          [](const std::string& name) { return name == HW_IF_KP || name == HW_IF_KD; });
 
           if (actuator_it->has_vel_pid)
           {
@@ -2321,9 +2321,8 @@ void MujocoSystemInterface::register_urdf_joints(const hardware_interface::Hardw
           else if (has_impedance_interfaces)
           {
             // Velocity interface will be used for impedance control - no PID needed
-            RCLCPP_DEBUG(get_logger(),
-                         "Velocity command interface for joint '%s' will be used for impedance control",
-                         actuator_name.c_str());
+            RCLCPP_DEBUG(get_logger(), "Velocity command interface for joint '%s' will be used for impedance control",
+                          actuator_name.c_str());
           }
           else
           {
