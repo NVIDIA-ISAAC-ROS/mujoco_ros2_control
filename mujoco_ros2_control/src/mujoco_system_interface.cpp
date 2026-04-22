@@ -2322,7 +2322,7 @@ void MujocoSystemInterface::register_urdf_joints(const hardware_interface::Hardw
           {
             // Velocity interface will be used for impedance control - no PID needed
             RCLCPP_DEBUG(get_logger(), "Velocity command interface for joint '%s' will be used for impedance control",
-                          actuator_name.c_str());
+                         actuator_name.c_str());
           }
           else
           {

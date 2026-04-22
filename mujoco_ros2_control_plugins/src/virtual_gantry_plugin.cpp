@@ -26,8 +26,7 @@
 namespace mujoco_ros2_control_plugins
 {
 
-bool VirtualGantryPlugin::init(
-  rclcpp::Node::SharedPtr node, const mjModel * model, mjData * /*data*/)
+bool VirtualGantryPlugin::init(rclcpp::Node::SharedPtr node, const mjModel* model, mjData* /*data*/)
 {
   node_ = node;
 
@@ -36,13 +35,15 @@ bool VirtualGantryPlugin::init(
   const std::string prefix = "mujoco_plugins." + node->get_sub_namespace() + ".";
   auto params = node->get_node_parameters_interface();
 
-  auto get_double = [&](const std::string & key, double & out) {
-    if (params->has_parameter(prefix + key)) {
+  auto get_double = [&](const std::string& key, double& out) {
+    if (params->has_parameter(prefix + key))
+    {
       out = params->get_parameter(prefix + key).get_parameter_value().get<double>();
     }
   };
-  auto get_string = [&](const std::string & key, std::string & out) {
-    if (params->has_parameter(prefix + key)) {
+  auto get_string = [&](const std::string& key, std::string& out) {
+    if (params->has_parameter(prefix + key))
+    {
       out = params->get_parameter(prefix + key).get_parameter_value().get<std::string>();
     }
   };
@@ -52,87 +53,84 @@ bool VirtualGantryPlugin::init(
   get_double("kd_pos", kd_pos_);
   get_double("anchor_z", anchor_z_world_);
 
-  if (params->has_parameter(prefix + "body_offset")) {
-    const auto v = params->get_parameter(prefix + "body_offset")
-                     .get_parameter_value().get<std::vector<double>>();
-    if (v.size() == 3) {
-      body_offset_ = {{v[0], v[1], v[2]}};
+  if (params->has_parameter(prefix + "body_offset"))
+  {
+    const auto v = params->get_parameter(prefix + "body_offset").get_parameter_value().get<std::vector<double>>();
+    if (v.size() == 3)
+    {
+      body_offset_ = { { v[0], v[1], v[2] } };
     }
   }
 
   body_id_ = mj_name2id(model, mjOBJ_BODY, body_name_.c_str());
-  if (body_id_ < 0) {
-    RCLCPP_ERROR(node_->get_logger(), "VirtualGantryPlugin: body '%s' not found",
-                 body_name_.c_str());
+  if (body_id_ < 0)
+  {
+    RCLCPP_ERROR(node_->get_logger(), "VirtualGantryPlugin: body '%s' not found", body_name_.c_str());
     return false;
   }
 
   RCLCPP_INFO(node_->get_logger(),
               "VirtualGantryPlugin: body '%s' (id=%d), anchor_z=%.2f, "
               "offset=[%.3f,%.3f,%.3f], kp=%.0f, kd=%.0f",
-              body_name_.c_str(), body_id_, anchor_z_world_,
-              body_offset_[0], body_offset_[1], body_offset_[2], kp_pos_, kd_pos_);
+              body_name_.c_str(), body_id_, anchor_z_world_, body_offset_[0], body_offset_[1], body_offset_[2], kp_pos_,
+              kd_pos_);
 
   enable_srv_ = node_->create_service<mujoco_ros2_control_msgs::srv::SetGantryEnabled>(
-    "set_gantry_enabled",
-    [this](
-      const mujoco_ros2_control_msgs::srv::SetGantryEnabled::Request::SharedPtr req,
-      mujoco_ros2_control_msgs::srv::SetGantryEnabled::Response::SharedPtr resp)
-    {
-      std::lock_guard<std::mutex> lock(state_mutex_);
-      const bool was_enabled = enabled_;
-      enabled_ = req->enabled;
-      if (enabled_ && !was_enabled) {
-        spawn_pos_captured_ = false;  // re-anchor above current attach position
-      }
-      resp->success = true;
-      resp->message = enabled_ ? "Gantry enabled" : "Gantry disabled";
-      RCLCPP_INFO(node_->get_logger(), "%s", resp->message.c_str());
-    });
+      "set_gantry_enabled", [this](const mujoco_ros2_control_msgs::srv::SetGantryEnabled::Request::SharedPtr req,
+                                   mujoco_ros2_control_msgs::srv::SetGantryEnabled::Response::SharedPtr resp) {
+        std::lock_guard<std::mutex> lock(state_mutex_);
+        const bool was_enabled = enabled_;
+        enabled_ = req->enabled;
+        if (enabled_ && !was_enabled)
+        {
+          spawn_pos_captured_ = false;  // re-anchor above current attach position
+        }
+        resp->success = true;
+        resp->message = enabled_ ? "Gantry enabled" : "Gantry disabled";
+        RCLCPP_INFO(node_->get_logger(), "%s", resp->message.c_str());
+      });
 
   // Snapshot the current toggle counter so the first update() doesn't misfire.
-  last_toggle_count_ = GantryKeyboardState::get().toggle_counter.load(
-    std::memory_order_relaxed);
+  last_toggle_count_ = GantryKeyboardState::get().toggle_counter.load(std::memory_order_relaxed);
 
   return true;
 }
 
-void VirtualGantryPlugin::update(const mjModel * /*model*/, mjData * data)
+void VirtualGantryPlugin::update(const mjModel* /*model*/, mjData* data)
 {
   std::lock_guard<std::mutex> lock(state_mutex_);
 
   // --- Keyboard toggle ('G' key) -------------------------------------------
-  const int tc = GantryKeyboardState::get().toggle_counter.load(
-    std::memory_order_relaxed);
-  if (tc != last_toggle_count_) {
+  const int tc = GantryKeyboardState::get().toggle_counter.load(std::memory_order_relaxed);
+  if (tc != last_toggle_count_)
+  {
     last_toggle_count_ = tc;
     enabled_ = !enabled_;
-    if (enabled_) {
+    if (enabled_)
+    {
       spawn_pos_captured_ = false;  // re-anchor above current position on next step
     }
-    RCLCPP_INFO(node_->get_logger(), "VirtualGantryPlugin: %s via keyboard",
-                enabled_ ? "enabled" : "disabled");
+    RCLCPP_INFO(node_->get_logger(), "VirtualGantryPlugin: %s via keyboard", enabled_ ? "enabled" : "disabled");
   }
 
   // --- Rope length adjustment ('[' / ']' keys) -------------------------------
-  const int scroll_ticks =
-    GantryKeyboardState::get().rope_length_ticks.exchange(0, std::memory_order_relaxed);
-  if (scroll_ticks != 0) {
+  const int scroll_ticks = GantryKeyboardState::get().rope_length_ticks.exchange(0, std::memory_order_relaxed);
+  if (scroll_ticks != 0)
+  {
     rope_length_ = std::max(0.1, rope_length_ + scroll_ticks * 0.005);
     RCLCPP_INFO(node_->get_logger(), "VirtualGantryPlugin: rope_length=%.3f m", rope_length_);
   }
 
   // --- Compute attachment point in world frame ------------------------------
   // attach_pos = body CoM + rotation_matrix * body_offset
-  const double * xpos = &data->xpos[body_id_ * 3];
-  const double * xmat = &data->xmat[body_id_ * 9];
+  const double* xpos = &data->xpos[body_id_ * 3];
+  const double* xmat = &data->xmat[body_id_ * 9];
 
   double attach_pos[3];
-  for (int i = 0; i < 3; ++i) {
-    attach_pos[i] = xpos[i]
-      + xmat[i * 3 + 0] * body_offset_[0]
-      + xmat[i * 3 + 1] * body_offset_[1]
-      + xmat[i * 3 + 2] * body_offset_[2];
+  for (int i = 0; i < 3; ++i)
+  {
+    attach_pos[i] = xpos[i] + xmat[i * 3 + 0] * body_offset_[0] + xmat[i * 3 + 1] * body_offset_[1] +
+                    xmat[i * 3 + 2] * body_offset_[2];
   }
 
   // --- Capture anchor on first step after (re-)enable ----------------------
@@ -144,7 +142,7 @@ void VirtualGantryPlugin::update(const mjModel * /*model*/, mjData * data)
     rope_length_ = std::abs(anchor_z_world_ - attach_pos[2]);
     spawn_pos_captured_ = true;
     RCLCPP_INFO(node_->get_logger(), "VirtualGantryPlugin: anchor at [%.3f, %.3f, %.3f], rope_length=%.3f m",
-                 anchor_pos_[0], anchor_pos_[1], anchor_pos_[2], rope_length_);
+                anchor_pos_[0], anchor_pos_[1], anchor_pos_[2], rope_length_);
   }
 
   // Rope vector from anchor to attachment point.
