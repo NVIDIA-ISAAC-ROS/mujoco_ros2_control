@@ -6,4 +6,12 @@
       A simple plugin that publishes a heartbeat message every second to demonstrate the plugin system.
     </description>
   </class>
+  <class name="mujoco_ros2_control_plugins/VirtualGantryPlugin"
+         type="mujoco_ros2_control_plugins::VirtualGantryPlugin"
+         base_class_type="mujoco_ros2_control_plugins::MuJoCoROS2ControlPluginBase">
+    <description>
+      PD spring-damper that holds a body at its spawn-time world-frame position.
+      Used to keep humanoid robots upright during policy startup and after simulation resets.
+    </description>
+  </class>
 </library>

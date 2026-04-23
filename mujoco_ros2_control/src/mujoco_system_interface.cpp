@@ -44,7 +44,6 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
-#include <unistd.h>
 
 #include <tinyxml2.h>
 #include <std_msgs/msg/string.hpp>
@@ -251,7 +250,10 @@ public:
 class ROS2ControlGlfwAdapter : public mj::GlfwAdapter
 {
 public:
-  explicit ROS2ControlGlfwAdapter(std::atomic<bool>& step_requested) : step_requested_(step_requested)
+  explicit ROS2ControlGlfwAdapter(
+      std::atomic<bool>& step_requested,
+      std::vector<std::shared_ptr<mujoco_ros2_control_plugins::MuJoCoROS2ControlPluginBase>>& plugins)
+    : step_requested_(step_requested), plugins_(plugins)
   {
   }
 
@@ -269,12 +271,22 @@ protected:
       return;
     }
 
-    // Forward all other keys so normal UI behaviour is preserved.
-    mj::GlfwAdapter::OnKey(key, scancode, act);
+    // Fan out to all plugins. If any plugin consumes the event, do not forward
+    // to the MuJoCo viewer (prevents conflicts with native viewer key bindings).
+    bool consumed = false;
+    for (auto& plugin : plugins_)
+    {
+      consumed |= plugin->on_key(key, scancode, act, 0);
+    }
+    if (!consumed)
+    {
+      mj::GlfwAdapter::OnKey(key, scancode, act);
+    }
   }
 
 private:
   std::atomic<bool>& step_requested_;
+  std::vector<std::shared_ptr<mujoco_ros2_control_plugins::MuJoCoROS2ControlPluginBase>>& plugins_;
 };
 
 // Clamps v to the lo or high value
@@ -829,9 +841,9 @@ MujocoSystemInterface::on_init(const hardware_interface::HardwareComponentInterf
   {
     // Launch the UI loop in the background
     ui_thread_ = std::thread([this, sim_ready]() {
-      sim_ = std::make_unique<mj::Simulate>(std::make_unique<ROS2ControlGlfwAdapter>(keyboard_step_requested_), &cam_,
-                                            &opt_, &pert_,
-                                            /* is_passive = */ false);
+      sim_ = std::make_unique<mj::Simulate>(
+          std::make_unique<ROS2ControlGlfwAdapter>(keyboard_step_requested_, plugin_instances_), &cam_, &opt_, &pert_,
+          /* is_passive = */ false);
 
       // Add ros2 control icon for the taskbar
       std::string icon_location =
@@ -1513,8 +1525,8 @@ MujocoSystemInterface::perform_command_mode_switch(const std::vector<std::string
         joint_it->is_position_control_enabled = has_position;
         joint_it->is_velocity_control_enabled = has_velocity;
         joint_it->is_effort_control_enabled = has_effort;  // Track effort for feed-forward
-        RCLCPP_INFO(get_logger(), "Joint %s: impedance control enabled (kp/kd with position%s%s)",
-                    joint_name.c_str(), has_velocity ? "/velocity" : "", has_effort ? "/effort_ff" : "");
+        RCLCPP_INFO(get_logger(), "Joint %s: impedance control enabled (kp/kd with position%s%s)", joint_name.c_str(),
+                    has_velocity ? "/velocity" : "", has_effort ? "/effort_ff" : "");
       }
       else if (has_effort)
       {
@@ -2276,9 +2288,9 @@ void MujocoSystemInterface::register_urdf_joints(const hardware_interface::Hardw
         else if (actuator_it->actuator_type == ActuatorType::MOTOR || actuator_it->actuator_type == ActuatorType::CUSTOM)
         {
           // Check if kp/kd interfaces are present (indicating impedance control mode)
-          bool has_impedance_interfaces = std::any_of(
-              command_interface_names.begin(), command_interface_names.end(),
-              [](const std::string& name) { return name == HW_IF_KP || name == HW_IF_KD; });
+          bool has_impedance_interfaces =
+              std::any_of(command_interface_names.begin(), command_interface_names.end(),
+                          [](const std::string& name) { return name == HW_IF_KP || name == HW_IF_KD; });
 
           if (actuator_it->has_vel_pid)
           {
@@ -2298,8 +2310,7 @@ void MujocoSystemInterface::register_urdf_joints(const hardware_interface::Hardw
           else if (has_impedance_interfaces)
           {
             // Velocity interface will be used for impedance control - no PID needed
-            RCLCPP_DEBUG(get_logger(),
-                         "Velocity command interface for joint '%s' will be used for impedance control",
+            RCLCPP_DEBUG(get_logger(), "Velocity command interface for joint '%s' will be used for impedance control",
                          actuator_name.c_str());
           }
           else
@@ -2896,6 +2907,12 @@ void MujocoSystemInterface::reset_simulation_state(bool fill_initial_state)
     joint.velocity_interface.command_ = 0.0;
     joint.effort_interface.command_ = 0.0;
   }
+
+  // Notify plugins so they can clear accumulated state (e.g. integrators).
+  for (auto& plugin : plugin_instances_)
+  {
+    plugin->reset();
+  }
 }
 
 void MujocoSystemInterface::reset_world_callback(
@@ -3123,6 +3140,7 @@ void MujocoSystemInterface::PhysicsLoop()
             // Copy data to the control
             mju_copy(mj_data_->ctrl, mj_data_control_->ctrl, static_cast<int>(mj_model_->nu));
             mju_copy(mj_data_->qfrc_applied, mj_data_control_->qfrc_applied, static_cast<int>(mj_model_->nu));
+            mju_copy(mj_data_->xfrc_applied, mj_data_control_->xfrc_applied, 6 * static_cast<int>(mj_model_->nbody));
             // run single step, let next iteration deal with timing
             mj_step(mj_model_, mj_data_);
 
@@ -3175,6 +3193,7 @@ void MujocoSystemInterface::PhysicsLoop()
               // Copy data to the control
               mju_copy(mj_data_->ctrl, mj_data_control_->ctrl, static_cast<int>(mj_model_->nu));
               mju_copy(mj_data_->qfrc_applied, mj_data_control_->qfrc_applied, static_cast<int>(mj_model_->nu));
+              mju_copy(mj_data_->xfrc_applied, mj_data_control_->xfrc_applied, 6 * static_cast<int>(mj_model_->nbody));
               // call mj_step
               mj_step(mj_model_, mj_data_);
 
@@ -3231,6 +3250,7 @@ void MujocoSystemInterface::PhysicsLoop()
           {
             mju_copy(mj_data_->ctrl, mj_data_control_->ctrl, static_cast<int>(mj_model_->nu));
             mju_copy(mj_data_->qfrc_applied, mj_data_control_->qfrc_applied, static_cast<int>(mj_model_->nu));
+            mju_copy(mj_data_->xfrc_applied, mj_data_control_->xfrc_applied, 6 * static_cast<int>(mj_model_->nbody));
             mj_step(mj_model_, mj_data_);
             publish_clock();
 

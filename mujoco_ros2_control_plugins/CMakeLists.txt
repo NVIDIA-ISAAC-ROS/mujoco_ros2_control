@@ -7,9 +7,11 @@ export_windows_symbols()
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
+find_package(geometry_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
 
 # Attempt to link MuJoCo via the vendor package, if available
 find_package(mujoco_vendor QUIET)
@@ -22,9 +24,10 @@ else()
 endif()
 
 
-# Build the heartbeat publisher plugin
+# Build the plugin library
 add_library(mujoco_ros2_control_plugins SHARED
   src/heartbeat_publisher_plugin.cpp
+  src/virtual_gantry_plugin.cpp
 )
 target_include_directories(mujoco_ros2_control_plugins PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -38,7 +41,9 @@ target_link_libraries(mujoco_ros2_control_plugins PUBLIC
   ${MUJOCO_LIB}
   rclcpp::rclcpp
   pluginlib::pluginlib
+  ${geometry_msgs_TARGETS}
   ${std_msgs_TARGETS}
+  ${std_srvs_TARGETS}
 )
 
 # Install the plugin library
@@ -64,7 +69,7 @@ install(DIRECTORY include/
 pluginlib_export_plugin_description_file(mujoco_ros2_control_plugins mujoco_ros2_control_plugins.xml)
 
 ament_export_include_directories(include)
-ament_export_dependencies(mujoco_vendor rclcpp pluginlib std_msgs ros2_control_cmake)
+ament_export_dependencies(geometry_msgs mujoco_vendor rclcpp pluginlib std_msgs std_srvs ros2_control_cmake)
 ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
 
 ament_package()

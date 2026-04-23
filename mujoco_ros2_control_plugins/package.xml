@@ -18,11 +18,13 @@
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
+  <depend>geometry_msgs</depend>
   <depend>mujoco_vendor</depend>
   <depend>rclcpp</depend>
   <depend>ros2_control_cmake</depend>
   <depend>pluginlib</depend>
   <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
 
   <test_depend>ament_cmake_gtest</test_depend>
 
