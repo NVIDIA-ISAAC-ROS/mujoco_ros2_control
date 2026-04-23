@@ -21,8 +21,6 @@
 #include <mujoco/mujoco.h>
 #include <pluginlib/class_list_macros.hpp>
 
-#include "mujoco_ros2_control_plugins/gantry_keyboard_state.hpp"
-
 namespace mujoco_ros2_control_plugins
 {
 
@@ -91,7 +89,7 @@ bool VirtualGantryPlugin::init(rclcpp::Node::SharedPtr node, const mjModel* mode
       });
 
   // Snapshot the current toggle counter so the first update() doesn't misfire.
-  last_toggle_count_ = GantryKeyboardState::get().toggle_counter.load(std::memory_order_relaxed);
+  last_toggle_count_ = toggle_counter_.load(std::memory_order_relaxed);
 
   return true;
 }
@@ -101,20 +99,24 @@ void VirtualGantryPlugin::update(const mjModel* /*model*/, mjData* data)
   std::lock_guard<std::mutex> lock(state_mutex_);
 
   // --- Keyboard toggle ('G' key) -------------------------------------------
-  const int tc = GantryKeyboardState::get().toggle_counter.load(std::memory_order_relaxed);
-  if (tc != last_toggle_count_)
+  const int tc = toggle_counter_.load(std::memory_order_acquire);
+  const int delta = tc - last_toggle_count_;
+  if (delta != 0)
   {
     last_toggle_count_ = tc;
-    enabled_ = !enabled_;
-    if (enabled_)
+    if (delta & 1)
     {
-      spawn_pos_captured_ = false;  // re-anchor above current position on next step
+      enabled_ = !enabled_;
+      if (enabled_)
+      {
+        spawn_pos_captured_ = false;  // re-anchor above current position on next step
+      }
+      RCLCPP_INFO(node_->get_logger(), "VirtualGantryPlugin: %s via keyboard", enabled_ ? "enabled" : "disabled");
     }
-    RCLCPP_INFO(node_->get_logger(), "VirtualGantryPlugin: %s via keyboard", enabled_ ? "enabled" : "disabled");
   }
 
   // --- Rope length adjustment ('[' / ']' keys) -------------------------------
-  const int scroll_ticks = GantryKeyboardState::get().rope_length_ticks.exchange(0, std::memory_order_relaxed);
+  const int scroll_ticks = rope_length_ticks_.exchange(0, std::memory_order_acquire);
   if (scroll_ticks != 0)
   {
     rope_length_ = std::max(0.1, rope_length_ + scroll_ticks * 0.005);
@@ -219,6 +221,33 @@ void VirtualGantryPlugin::reset()
   rope_dist_prev_ = -1.0;
   rope_dist_dot_ = 0.0;
   last_update_time_ = -1.0;
+}
+
+void VirtualGantryPlugin::on_key(int key, int /*scancode*/, int action, int /*mods*/)
+{
+  // GLFW constants (stable values matching glfw3.h; avoids adding glfw as a plugin dependency).
+  constexpr int kPress = 1;
+  constexpr int kRepeat = 2;
+  constexpr int kKeyG = 71;
+  constexpr int kKeyLeftBracket = 91;
+  constexpr int kKeyRightBracket = 93;
+
+  if (action != kPress && action != kRepeat)
+  {
+    return;
+  }
+  if (key == kKeyG && action == kPress)
+  {
+    toggle_counter_.fetch_add(1, std::memory_order_release);
+  }
+  else if (key == kKeyLeftBracket)
+  {
+    rope_length_ticks_.fetch_add(-1, std::memory_order_release);
+  }
+  else if (key == kKeyRightBracket)
+  {
+    rope_length_ticks_.fetch_add(1, std::memory_order_release);
+  }
 }
 
 void VirtualGantryPlugin::cleanup()

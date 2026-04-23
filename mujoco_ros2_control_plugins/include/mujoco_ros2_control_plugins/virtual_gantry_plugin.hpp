@@ -16,6 +16,7 @@
 #define MUJOCO_ROS2_CONTROL_PLUGINS__VIRTUAL_GANTRY_PLUGIN_HPP_
 
 #include <array>
+#include <atomic>
 #include <mutex>
 #include <string>
 
@@ -48,6 +49,7 @@ public:
   void update(const mjModel* model, mjData* data) override;
   void reset() override;
   void cleanup() override;
+  void on_key(int key, int scancode, int action, int mods) override;
 
 private:
   rclcpp::Node::SharedPtr node_;
@@ -82,7 +84,11 @@ private:
   bool enabled_{ true };
   bool spawn_pos_captured_{ false };
 
-  // Last toggle_counter value seen; used to detect 'G' key edges.
+  // Atomic key-event counters written by on_key() (UI thread) and consumed by update() (physics thread).
+  std::atomic<int> toggle_counter_{ 0 };
+  std::atomic<int> rope_length_ticks_{ 0 };
+
+  // Last toggle_counter value seen; used to detect 'G' key edges in update().
   int last_toggle_count_{ 0 };
 
   std::mutex state_mutex_;

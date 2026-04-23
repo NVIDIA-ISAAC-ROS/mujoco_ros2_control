@@ -70,6 +70,15 @@ public:
   virtual void reset()
   {
   }
+
+  /**
+   * @brief Called from the GLFW UI thread on every key event.
+   * @note Invoked on the UI thread, not the physics thread. Implementations must be
+   *       non-blocking and hand off state to update() via atomics.
+   */
+  virtual void on_key(int /*key*/, int /*scancode*/, int /*action*/, int /*mods*/)
+  {
+  }
 };
 
 }  // namespace mujoco_ros2_control_plugins

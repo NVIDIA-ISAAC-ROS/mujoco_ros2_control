@@ -19,12 +19,10 @@
 
 #include "mujoco_ros2_control/mujoco_system_interface.hpp"
 #include "array_safety.h"
-#include "mujoco_ros2_control_plugins/gantry_keyboard_state.hpp"
 
 #include <fmt/compile.h>
 #include <fmt/ranges.h>
 
-#include <dlfcn.h>
 #include <unistd.h>
 #include <cerrno>
 #include <chrono>
@@ -252,7 +250,10 @@ public:
 class ROS2ControlGlfwAdapter : public mj::GlfwAdapter
 {
 public:
-  explicit ROS2ControlGlfwAdapter(std::atomic<bool>& step_requested) : step_requested_(step_requested)
+  explicit ROS2ControlGlfwAdapter(
+      std::atomic<bool>& step_requested,
+      std::vector<std::shared_ptr<mujoco_ros2_control_plugins::MuJoCoROS2ControlPluginBase>>& plugins)
+    : step_requested_(step_requested), plugins_(plugins)
   {
   }
 
@@ -270,34 +271,19 @@ protected:
       return;
     }
 
-    // Toggle gantry on/off with 'G'.
-    if (key == GLFW_KEY_G && act == GLFW_PRESS)
+    // Fan out to all plugins so each can handle the keys it cares about.
+    for (auto& plugin : plugins_)
     {
-      mujoco_ros2_control_plugins::GantryKeyboardState::get().toggle_counter.fetch_add(1, std::memory_order_relaxed);
-      return;
+      plugin->on_key(key, scancode, act, 0);
     }
 
-    // '[' = shorten rope, ']' = lengthen rope (0.5 cm per press; hold for repeat).
-    // Note: GlfwAdapter's GLFW scroll callback calls PlatformUIAdapter::OnScroll via
-    // a devirtualized direct call, so OnScroll overrides cannot intercept scroll events.
-    // Keyboard-based adjustment here is the reliable alternative.
-    if (key == GLFW_KEY_LEFT_BRACKET && (act == GLFW_PRESS || act == GLFW_REPEAT))
-    {
-      mujoco_ros2_control_plugins::GantryKeyboardState::get().rope_length_ticks.fetch_add(-1, std::memory_order_relaxed);
-      return;
-    }
-    if (key == GLFW_KEY_RIGHT_BRACKET && (act == GLFW_PRESS || act == GLFW_REPEAT))
-    {
-      mujoco_ros2_control_plugins::GantryKeyboardState::get().rope_length_ticks.fetch_add(1, std::memory_order_relaxed);
-      return;
-    }
-
-    // Forward all other keys so normal UI behaviour is preserved.
+    // Forward to parent for all standard MuJoCo viewer bindings.
     mj::GlfwAdapter::OnKey(key, scancode, act);
   }
 
 private:
   std::atomic<bool>& step_requested_;
+  std::vector<std::shared_ptr<mujoco_ros2_control_plugins::MuJoCoROS2ControlPluginBase>>& plugins_;
 };
 
 // Clamps v to the lo or high value
@@ -852,9 +838,9 @@ MujocoSystemInterface::on_init(const hardware_interface::HardwareComponentInterf
   {
     // Launch the UI loop in the background
     ui_thread_ = std::thread([this, sim_ready]() {
-      sim_ = std::make_unique<mj::Simulate>(std::make_unique<ROS2ControlGlfwAdapter>(keyboard_step_requested_), &cam_,
-                                            &opt_, &pert_,
-                                            /* is_passive = */ false);
+      sim_ = std::make_unique<mj::Simulate>(
+          std::make_unique<ROS2ControlGlfwAdapter>(keyboard_step_requested_, plugin_instances_), &cam_, &opt_, &pert_,
+          /* is_passive = */ false);
 
       // Add ros2 control icon for the taskbar
       std::string icon_location =
@@ -3386,22 +3372,6 @@ rclcpp::Node::SharedPtr MujocoSystemInterface::get_node() const
 
 void MujocoSystemInterface::load_mujoco_plugins()
 {
-  // Ensure GantryKeyboardState::get() (defined in this DSO) is visible globally so
-  // that libmujoco_ros2_control_plugins.so can resolve it at dlopen time.
-  // class_loader may load hardware-interface plugins with RTLD_LOCAL, which
-  // would otherwise keep our symbols out of the global symbol table.
-  {
-    Dl_info info{};
-    if (dladdr(reinterpret_cast<const void*>(&MujocoSystemInterface::load_mujoco_plugins), &info) && info.dli_fname)
-    {
-      void* h = dlopen(info.dli_fname, RTLD_LAZY | RTLD_NOLOAD | RTLD_GLOBAL);
-      if (h)
-      {
-        dlclose(h);  // just promoting visibility, don't hold an extra reference
-      }
-    }
-  }
-
   try
   {
     plugin_loader_ = std::make_unique<pluginlib::ClassLoader<mujoco_ros2_control_plugins::MuJoCoROS2ControlPluginBase>>(
