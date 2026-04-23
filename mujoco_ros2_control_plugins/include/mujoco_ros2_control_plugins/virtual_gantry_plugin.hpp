@@ -39,7 +39,7 @@ namespace mujoco_ros2_control_plugins
 // at spawn so the rope is just taut at the moment of activation.
 //
 // 'G' in the MuJoCo viewer toggles the gantry on/off.
-// '[' shortens and ']' lengthens the rope by 5 cm per keypress (hold to repeat).
+// '[' shortens and ']' lengthens the rope by 0.5 cm per keypress (hold to repeat).
 // The set_gantry_enabled ROS 2 service also enables/disables the gantry.
 class VirtualGantryPlugin : public MuJoCoROS2ControlPluginBase
 {
@@ -68,7 +68,7 @@ private:
   double anchor_z_world_{ 1.5 };
   std::array<double, 3> anchor_pos_{};
 
-  // Rope length at spawn = |anchor_z_world_ - attach_z|; adjustable at runtime via Shift+scroll.
+  // Rope length at spawn = |anchor_z_world_ - attach_z|; adjustable at runtime via '['/']' keys.
   double rope_length_{ 0.0 };
 
   // Finite-difference state for rope-extension-rate damping.

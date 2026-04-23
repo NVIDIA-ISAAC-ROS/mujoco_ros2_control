@@ -277,7 +277,7 @@ protected:
       return;
     }
 
-    // '[' = shorten rope, ']' = lengthen rope (5 cm per press; hold for repeat).
+    // '[' = shorten rope, ']' = lengthen rope (0.5 cm per press; hold for repeat).
     // Note: GlfwAdapter's GLFW scroll callback calls PlatformUIAdapter::OnScroll via
     // a devirtualized direct call, so OnScroll overrides cannot intercept scroll events.
     // Keyboard-based adjustment here is the reliable alternative.

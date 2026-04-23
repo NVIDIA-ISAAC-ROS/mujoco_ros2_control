@@ -223,6 +223,9 @@ void VirtualGantryPlugin::reset()
 
 void VirtualGantryPlugin::cleanup()
 {
+  // Hold state_mutex_ so any in-flight service callback (which also takes the lock and
+  // dereferences node_) finishes before we tear down the service and node references.
+  std::lock_guard<std::mutex> lock(state_mutex_);
   enable_srv_.reset();
   node_.reset();
 }
