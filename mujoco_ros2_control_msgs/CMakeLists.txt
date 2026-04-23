@@ -22,6 +22,7 @@ set(srv_files
   srv/StepSimulation.srv
   srv/ApplyExternalWrench.srv
   srv/SetFreeJointState.srv
+  srv/SetGantryTarget.srv
 )
 
 

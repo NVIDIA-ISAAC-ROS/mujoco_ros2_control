@@ -54,4 +54,11 @@
          base_class_type="mujoco_ros2_control_plugins::MuJoCoROS2ControlPluginBase">
     <description>[Deprecated] Wraps MuJoCo rangefinder sensors as ROS 2 LaserScan publishers.</description>
   </class>
+  <class name="mujoco_ros2_control_plugins/VirtualGantryPlugin"
+         type="mujoco_ros2_control_plugins::VirtualGantryPlugin"
+         base_class_type="mujoco_ros2_control_plugins::MuJoCoROS2ControlPluginBase">
+    <description>
+      Rope constraint that suspends a configured body from a fixed world-frame anchor.
+    </description>
+  </class>
 </library>

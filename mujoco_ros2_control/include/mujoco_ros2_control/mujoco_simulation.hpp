@@ -109,6 +109,7 @@ public:
    *        initial state. When false, a keyframe has already been applied.
    */
   using ResetCallback = std::function<void(bool fill_initial_state)>;
+  using KeyCallback = std::function<bool(int key, int scancode, int action, int mods)>;
 
   /**
    * @brief Construct a new Mujoco Simulation object. This is a no-op until initialization.
@@ -146,6 +147,9 @@ public:
    * @brief Register a callback function to be called on `reset_world_state`.
    */
   void set_reset_callback(ResetCallback callback);
+
+  /** Register a callback for viewer key events. An empty callback disables dispatch. */
+  void set_key_callback(KeyCallback callback);
 
   /**
    * @brief Start the physics thread. Must be called after load_model().
@@ -515,6 +519,8 @@ private:
 
   // Callback into the HW interface to perform component-side reset bookkeeping.
   ResetCallback reset_callback_;
+  std::mutex key_callback_mutex_;
+  KeyCallback key_callback_;
 };
 
 }  // namespace mujoco_ros2_control

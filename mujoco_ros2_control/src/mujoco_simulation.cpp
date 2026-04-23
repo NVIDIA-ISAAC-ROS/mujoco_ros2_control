@@ -193,15 +193,15 @@ public:
 class ROS2ControlGlfwAdapter : public mj::GlfwAdapter
 {
 public:
-  explicit ROS2ControlGlfwAdapter(std::atomic<bool>& step_requested) : step_requested_(step_requested)
+  ROS2ControlGlfwAdapter(std::atomic<bool>& step_requested, std::mutex& key_callback_mutex,
+                         MujocoSimulation::KeyCallback& key_callback)
+    : step_requested_(step_requested), key_callback_mutex_(key_callback_mutex), key_callback_(key_callback)
   {
   }
 
 protected:
   void OnKey(int key, int scancode, int act) override
   {
-    // Intercept the right arrow key so only the ROS loop advances the physics,
-    // preventing double-stepping (MuJoCo's native handler would also call mj_step).
     if (key == GLFW_KEY_RIGHT)
     {
       if (act == GLFW_PRESS || act == GLFW_REPEAT)
@@ -211,12 +211,21 @@ protected:
       return;
     }
 
-    // Forward all other keys so normal UI behaviour is preserved.
-    mj::GlfwAdapter::OnKey(key, scancode, act);
+    MujocoSimulation::KeyCallback callback;
+    {
+      std::lock_guard<std::mutex> lock(key_callback_mutex_);
+      callback = key_callback_;
+    }
+    if (!callback || !callback(key, scancode, act, 0))
+    {
+      mj::GlfwAdapter::OnKey(key, scancode, act);
+    }
   }
 
 private:
   std::atomic<bool>& step_requested_;
+  std::mutex& key_callback_mutex_;
+  MujocoSimulation::KeyCallback& key_callback_;
 };
 
 // return the path to the directory containing the current executable
@@ -578,7 +587,7 @@ bool MujocoSimulation::initialize(rclcpp::Node::SharedPtr node, const std::strin
   {
     // Launch the UI loop in the background
     ui_thread_ = std::thread([this, sim_ready]() {
-      sim_ = std::make_unique<mj::Simulate>(std::make_unique<ROS2ControlGlfwAdapter>(keyboard_step_requested_), &cam_,
+      sim_ = std::make_unique<mj::Simulate>(std::make_unique<ROS2ControlGlfwAdapter>(keyboard_step_requested_, key_callback_mutex_, key_callback_), &cam_,
                                             &opt_, &pert_,
                                             /* is_passive = */ false);
 
@@ -763,6 +772,12 @@ void MujocoSimulation::capture_initial_state()
 void MujocoSimulation::set_reset_callback(ResetCallback callback)
 {
   reset_callback_ = std::move(callback);
+}
+
+void MujocoSimulation::set_key_callback(KeyCallback callback)
+{
+  std::lock_guard<std::mutex> lock(key_callback_mutex_);
+  key_callback_ = std::move(callback);
 }
 
 void MujocoSimulation::start_physics_thread()

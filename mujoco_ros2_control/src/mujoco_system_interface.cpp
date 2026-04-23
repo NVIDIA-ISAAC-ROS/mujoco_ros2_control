@@ -247,6 +247,11 @@ MujocoSystemInterface::MujocoSystemInterface() = default;
 MujocoSystemInterface::~MujocoSystemInterface()
 {
   // Stop plugins
+  if (simulation_)
+  {
+    simulation_->set_key_callback({});
+  }
+
   for (auto& plugin : plugin_instances_)
   {
     if (plugin)
@@ -2251,6 +2256,11 @@ void MujocoSystemInterface::reset_simulation_state(bool /*fill_initial_state*/)
     joint.velocity_interface.command_ = 0.0;
     joint.effort_interface.command_ = 0.0;
   }
+
+  for (auto& plugin : plugin_instances_)
+  {
+    plugin->reset();
+  }
 }
 
 void MujocoSystemInterface::get_model(mjModel*& dest)
@@ -2341,6 +2351,15 @@ void MujocoSystemInterface::load_mujoco_plugins()
     // TODO: Delete when camera and lidar configuration through xacro is fully deprecated.
     load_legacy_cameras(plugins_ns);
     load_legacy_lidar(plugins_ns);
+
+    simulation_->set_key_callback([this](int key, int scancode, int action, int mods) {
+      bool consumed = false;
+      for (auto& plugin : plugin_instances_)
+      {
+        consumed |= plugin->on_key(key, scancode, action, mods);
+      }
+      return consumed;
+    });
   }
   catch (const pluginlib::PluginlibException& ex)
   {
