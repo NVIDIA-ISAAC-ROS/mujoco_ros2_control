@@ -60,18 +60,18 @@ attachment position.
 
 #### ROS 2 interface
 
-**Service**: `set_gantry_enabled` (`mujoco_ros2_control_msgs/srv/SetGantryEnabled`)
+**Service**: `set_gantry_enabled` (`std_srvs/srv/SetBool`)
 
 The full service path is `/<node_name>/<plugin_key>/set_gantry_enabled`. With the default node name and the plugin key `virtual_gantry` from the example config above:
 
 ```bash
 # Enable
 ros2 service call /mujoco_ros2_control_node/virtual_gantry/set_gantry_enabled \
-  mujoco_ros2_control_msgs/srv/SetGantryEnabled '{enabled: true}'
+  std_srvs/srv/SetBool '{data: true}'
 
 # Disable
 ros2 service call /mujoco_ros2_control_node/virtual_gantry/set_gantry_enabled \
-  mujoco_ros2_control_msgs/srv/SetGantryEnabled '{enabled: false}'
+  std_srvs/srv/SetBool '{data: false}'
 ```
 
 #### Example configuration

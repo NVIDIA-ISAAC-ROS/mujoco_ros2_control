@@ -20,9 +20,9 @@
 #include <mutex>
 #include <string>
 
-#include "mujoco_ros2_control_msgs/srv/set_gantry_enabled.hpp"
 #include "mujoco_ros2_control_plugins/mujoco_ros2_control_plugins_base.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "std_srvs/srv/set_bool.hpp"
 
 namespace mujoco_ros2_control_plugins
 {
@@ -93,7 +93,7 @@ private:
 
   std::mutex state_mutex_;
 
-  rclcpp::Service<mujoco_ros2_control_msgs::srv::SetGantryEnabled>::SharedPtr enable_srv_;
+  rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr enable_srv_;
 };
 
 }  // namespace mujoco_ros2_control_plugins

@@ -73,12 +73,12 @@ bool VirtualGantryPlugin::init(rclcpp::Node::SharedPtr node, const mjModel* mode
               body_name_.c_str(), body_id_, anchor_z_world_, body_offset_[0], body_offset_[1], body_offset_[2], kp_pos_,
               kd_pos_);
 
-  enable_srv_ = node_->create_service<mujoco_ros2_control_msgs::srv::SetGantryEnabled>(
-      "set_gantry_enabled", [this](const mujoco_ros2_control_msgs::srv::SetGantryEnabled::Request::SharedPtr req,
-                                   mujoco_ros2_control_msgs::srv::SetGantryEnabled::Response::SharedPtr resp) {
+  enable_srv_ = node_->create_service<std_srvs::srv::SetBool>(
+      "set_gantry_enabled",
+      [this](const std_srvs::srv::SetBool::Request::SharedPtr req, std_srvs::srv::SetBool::Response::SharedPtr resp) {
         std::lock_guard<std::mutex> lock(state_mutex_);
         const bool was_enabled = enabled_;
-        enabled_ = req->enabled;
+        enabled_ = req->data;
         if (enabled_ && !was_enabled)
         {
           spawn_pos_captured_ = false;  // re-anchor above current attach position
