@@ -223,7 +223,7 @@ void VirtualGantryPlugin::reset()
   last_update_time_ = -1.0;
 }
 
-void VirtualGantryPlugin::on_key(int key, int /*scancode*/, int action, int /*mods*/)
+bool VirtualGantryPlugin::on_key(int key, int /*scancode*/, int action, int /*mods*/)
 {
   // GLFW constants (stable values matching glfw3.h; avoids adding glfw as a plugin dependency).
   constexpr int kPress = 1;
@@ -234,20 +234,24 @@ void VirtualGantryPlugin::on_key(int key, int /*scancode*/, int action, int /*mo
 
   if (action != kPress && action != kRepeat)
   {
-    return;
+    return false;
   }
   if (key == kKeyG && action == kPress)
   {
     toggle_counter_.fetch_add(1, std::memory_order_release);
+    return true;
   }
-  else if (key == kKeyLeftBracket)
+  if (key == kKeyLeftBracket)
   {
     rope_length_ticks_.fetch_add(-1, std::memory_order_release);
+    return true;
   }
-  else if (key == kKeyRightBracket)
+  if (key == kKeyRightBracket)
   {
     rope_length_ticks_.fetch_add(1, std::memory_order_release);
+    return true;
   }
+  return false;
 }
 
 void VirtualGantryPlugin::cleanup()

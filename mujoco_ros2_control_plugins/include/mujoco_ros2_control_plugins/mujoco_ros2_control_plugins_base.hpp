@@ -73,11 +73,13 @@ public:
 
   /**
    * @brief Called from the GLFW UI thread on every key event.
+   * @return true if the event was consumed (caller should not forward to the MuJoCo viewer).
    * @note Invoked on the UI thread, not the physics thread. Implementations must be
    *       non-blocking and hand off state to update() via atomics.
    */
-  virtual void on_key(int /*key*/, int /*scancode*/, int /*action*/, int /*mods*/)
+  virtual bool on_key(int /*key*/, int /*scancode*/, int /*action*/, int /*mods*/)
   {
+    return false;
   }
 };
 

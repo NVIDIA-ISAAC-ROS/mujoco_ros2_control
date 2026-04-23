@@ -49,7 +49,7 @@ public:
   void update(const mjModel* model, mjData* data) override;
   void reset() override;
   void cleanup() override;
-  void on_key(int key, int scancode, int action, int mods) override;
+  bool on_key(int key, int scancode, int action, int mods) override;
 
 private:
   rclcpp::Node::SharedPtr node_;

@@ -271,14 +271,17 @@ protected:
       return;
     }
 
-    // Fan out to all plugins so each can handle the keys it cares about.
+    // Fan out to all plugins. If any plugin consumes the event, do not forward
+    // to the MuJoCo viewer (prevents conflicts with native viewer key bindings).
+    bool consumed = false;
     for (auto& plugin : plugins_)
     {
-      plugin->on_key(key, scancode, act, 0);
+      consumed |= plugin->on_key(key, scancode, act, 0);
     }
-
-    // Forward to parent for all standard MuJoCo viewer bindings.
-    mj::GlfwAdapter::OnKey(key, scancode, act);
+    if (!consumed)
+    {
+      mj::GlfwAdapter::OnKey(key, scancode, act);
+    }
   }
 
 private:
