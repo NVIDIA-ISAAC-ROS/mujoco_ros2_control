@@ -41,4 +41,4 @@ plugin, see [`doc/plugins.rst`](doc/plugins.rst).
 
 ## Virtual gantry
 
-Configure `mujoco_ros2_control_plugins/VirtualGantryPlugin` under `mujoco_plugins` with `body_name`, `body_offset`, `anchor_z`, `kp_pos`, and `kd_pos`. The plugin exposes `set_gantry_enabled` as a `std_srvs/srv/SetBool` service in its plugin namespace. In the viewer, `G` toggles the rope constraint, while `[` shortens and `]` lengthens the rope by 0.5 cm.
+Configure `mujoco_ros2_control_plugins/VirtualGantryPlugin` under `mujoco_plugins` with `body_name`, `body_offset`, `anchor_z`, `kp_pos`, and `kd_pos`. The plugin exposes `set_gantry_enabled` as a `std_srvs/srv/SetBool` service in its plugin namespace. In the viewer, `G` toggles the rope constraint, while `[` shortens and `]` lengthens the rope by 0.5 cm when the gantry is enabled.

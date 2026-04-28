@@ -119,8 +119,15 @@ void VirtualGantryPlugin::update(const mjModel* /*model*/, mjData* data)
   const int scroll_ticks = rope_length_ticks_.exchange(0, std::memory_order_acquire);
   if (scroll_ticks != 0)
   {
-    rope_length_ = std::max(0.1, rope_length_ + scroll_ticks * 0.005);
-    RCLCPP_INFO(node_->get_logger(), "VirtualGantryPlugin: rope_length=%.3f m", rope_length_);
+    if (enabled_)
+    {
+      rope_length_ = std::max(0.1, rope_length_ + scroll_ticks * 0.005);
+      RCLCPP_INFO(node_->get_logger(), "VirtualGantryPlugin: rope_length=%.3f m", rope_length_);
+    }
+    else
+    {
+      RCLCPP_WARN(node_->get_logger(), "VirtualGantryPlugin: gantry disabled — rope length unchanged");
+    }
   }
 
   // --- Compute attachment point in world frame ------------------------------
