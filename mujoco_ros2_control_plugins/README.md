@@ -55,8 +55,8 @@ attachment position.
 | Key | Action |
 |---|---|
 | `G` | Toggle gantry on / off. Re-enabling re-anchors above the current attachment position |
-| `[` | Shorten rope by 0.5 cm |
-| `]` | Lengthen rope by 0.5 cm |
+| `[` | Shorten rope by 0.5 cm *(ignored with a warning when gantry is disabled)* |
+| `]` | Lengthen rope by 0.5 cm *(ignored with a warning when gantry is disabled)* |
 
 #### ROS 2 interface
 
