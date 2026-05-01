@@ -85,7 +85,7 @@ Supported ROS 2 distributions
 
 ### Contributing
 
-- Contributions, bug reports and feature requests are welcome. Please follow standard ROS Controls project workflows: open issues, send PRs against the `main` branch and respect the repository code style using `pre-commit`.
+This project is currently not accepting contributions.
 
 ### License & maintainers
 
