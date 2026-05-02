@@ -78,8 +78,8 @@ struct GantryVisualizationFixture
     scene.geomorder = geomorder.data();
 
     plugin.body_id_ = 0;
-    plugin.body_offset_ = { { 0.0, 0.0, 0.3 } };
-    plugin.anchor_pos_ = { { 1.0, 2.0, 1.5 } };
+    plugin.body_offset_ = { { -0.16, 0.0, 0.3 } };
+    plugin.anchor_pos_ = { { 0.84, 2.0, 1.5 } };
     plugin.enabled_ = true;
     plugin.spawn_pos_captured_ = true;
   }

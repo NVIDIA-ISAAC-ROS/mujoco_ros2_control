@@ -240,18 +240,7 @@ void VirtualGantryPlugin::update_visualization(const mjModel* /*model*/, const m
                     xmat[i * 3 + 2] * body_offset_[2];
   }
 
-  constexpr mjtNum kVisualizationBackOffset = -0.16;
-  const mjtNum visual_offset[3] = {
-    xmat[0] * kVisualizationBackOffset,
-    xmat[3] * kVisualizationBackOffset,
-    xmat[6] * kVisualizationBackOffset,
-  };
-  const mjtNum anchor_pos[3] = { anchor_pos_[0] + visual_offset[0], anchor_pos_[1] + visual_offset[1],
-                                 anchor_pos_[2] + visual_offset[2] };
-  for (int i = 0; i < 3; ++i)
-  {
-    attach_pos[i] += visual_offset[i];
-  }
+  const mjtNum anchor_pos[3] = { anchor_pos_[0], anchor_pos_[1], anchor_pos_[2] };
   const float rope_rgba[4] = { 0.1f, 0.95f, 0.2f, 1.0f };
 
   mjvGeom* geom = &scene->geoms[scene->ngeom++];
