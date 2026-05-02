@@ -343,6 +343,8 @@ private:
   mjvCamera cam_;
   mjvOption opt_;
   mjvPerturb pert_;
+  mjvScene plugin_visualization_scene_;
+  bool plugin_visualization_scene_initialized_{ false };
 
   // Logger
   rclcpp::Logger logger_ = rclcpp::get_logger("MujocoSystemInterface");

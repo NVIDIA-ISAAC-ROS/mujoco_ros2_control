@@ -133,9 +133,64 @@ else()
     OUTPUT_NAME simulate
     POSITION_INDEPENDENT_CODE ON
   )
+  set(MUJOCO_SIMULATE_PATCHED_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/generated/simulate.cc")
+  file(READ "${MUJOCO_SIMULATE_DIR}/simulate.cc" MUJOCO_SIMULATE_SOURCE)
+  set(MUJOCO_SIMULATE_SYNC_ORIGINAL [=[
+  if (!is_passive_) {
+    mjv_updateScene(this->m_, this->d_, &this->opt, &this->pert, &this->cam, mjCAT_ALL, &this->scn);
+  } else {
+]=])
+  set(MUJOCO_SIMULATE_SYNC_PATCHED [=[
+  if (!is_passive_) {
+    mjv_updateScene(this->m_, this->d_, &this->opt, &this->pert, &this->cam, mjCAT_ALL, &this->scn);
+
+    // append geoms from user_scn to scratch space
+    if (user_scn) {
+      user_scn_geoms_.clear();
+      user_scn_geoms_.reserve(user_scn->ngeom);
+      for (int i = 0; i < user_scn->ngeom; ++i) {
+        user_scn_geoms_.push_back(user_scn->geoms[i]);
+      }
+    }
+  } else {
+]=])
+  string(FIND "${MUJOCO_SIMULATE_SOURCE}" "${MUJOCO_SIMULATE_SYNC_ORIGINAL}" MUJOCO_SIMULATE_SYNC_POSITION)
+  if(MUJOCO_SIMULATE_SYNC_POSITION EQUAL -1)
+    message(FATAL_ERROR "Could not patch MuJoCo Simulate::Sync for managed-mode user geoms")
+  endif()
+  string(REPLACE "${MUJOCO_SIMULATE_SYNC_ORIGINAL}" "${MUJOCO_SIMULATE_SYNC_PATCHED}" MUJOCO_SIMULATE_SOURCE
+                 "${MUJOCO_SIMULATE_SOURCE}")
+  set(MUJOCO_SIMULATE_RENDER_ORIGINAL [=[
+      if (!is_passive_) {
+        Sync();
+      } else if (m_passive_ && d_passive_) {
+]=])
+  set(MUJOCO_SIMULATE_RENDER_PATCHED [=[
+      if (!is_passive_) {
+        Sync();
+
+        // add user geoms to scene
+        int nusergeom = user_scn_geoms_.size();
+        int ngeom = std::min(nusergeom, this->scn.maxgeom - this->scn.ngeom);
+        if (ngeom < nusergeom) {
+          mj_warning(this->d_, mjWARN_VGEOMFULL, this->scn.maxgeom);
+        }
+        std::memcpy(this->scn.geoms + this->scn.ngeom, user_scn_geoms_.data(),
+                    ngeom * sizeof(mjvGeom));
+        this->scn.ngeom += ngeom;
+      } else if (m_passive_ && d_passive_) {
+]=])
+  string(FIND "${MUJOCO_SIMULATE_SOURCE}" "${MUJOCO_SIMULATE_RENDER_ORIGINAL}" MUJOCO_SIMULATE_RENDER_POSITION)
+  if(MUJOCO_SIMULATE_RENDER_POSITION EQUAL -1)
+    message(FATAL_ERROR "Could not patch MuJoCo Simulate::RenderLoop for managed-mode user geoms")
+  endif()
+  string(REPLACE "${MUJOCO_SIMULATE_RENDER_ORIGINAL}" "${MUJOCO_SIMULATE_RENDER_PATCHED}" MUJOCO_SIMULATE_SOURCE
+                 "${MUJOCO_SIMULATE_SOURCE}")
+  file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
+  file(WRITE "${MUJOCO_SIMULATE_PATCHED_SOURCE}" "${MUJOCO_SIMULATE_SOURCE}")
   target_sources(mujoco_simulate
     PRIVATE ${MUJOCO_SIMULATE_DIR}/simulate.h
-    PRIVATE ${MUJOCO_SIMULATE_DIR}/simulate.cc ${MUJOCO_SIMULATE_DIR}/array_safety.h
+    PRIVATE ${MUJOCO_SIMULATE_PATCHED_SOURCE} ${MUJOCO_SIMULATE_DIR}/array_safety.h
   )
   target_include_directories(mujoco_simulate PUBLIC ${MUJOCO_SIMULATE_DIR} ${MUJOCO_INCLUDE_DIR})
   target_link_libraries(mujoco_simulate PRIVATE lodepng mujoco::platform_ui_adapter ${MUJOCO_LIB})

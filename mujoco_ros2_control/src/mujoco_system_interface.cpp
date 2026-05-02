@@ -739,6 +739,12 @@ MujocoSystemInterface::~MujocoSystemInterface()
   }
   plugin_instances_.clear();
 
+  if (plugin_visualization_scene_initialized_)
+  {
+    mjv_freeScene(&plugin_visualization_scene_);
+    plugin_visualization_scene_initialized_ = false;
+  }
+
   // Cleanup data and the model, if they haven't been
   if (mj_data_)
   {
@@ -824,6 +830,7 @@ MujocoSystemInterface::on_init(const hardware_interface::HardwareComponentInterf
   mjv_defaultCamera(&cam_);
   mjv_defaultOption(&opt_);
   mjv_defaultPerturb(&pert_);
+  mjv_defaultScene(&plugin_visualization_scene_);
 
   // There is a timing issue here as the rendering context must be attached to
   // the executing thread, but we require the simulation to be available on
@@ -951,6 +958,12 @@ MujocoSystemInterface::on_init(const hardware_interface::HardwareComponentInterf
     std::unique_lock<std::recursive_mutex> lock(*sim_mutex_);
     mj_data_ = mj_makeData(mj_model_);
     mj_data_control_ = mj_makeData(mj_model_);
+    if (!headless_)
+    {
+      mjv_makeScene(mj_model_, &plugin_visualization_scene_, 32);
+      plugin_visualization_scene_initialized_ = true;
+      sim_->user_scn = &plugin_visualization_scene_;
+    }
   }
   if (!mj_data_ || !mj_data_control_)
   {
@@ -3325,6 +3338,15 @@ void MujocoSystemInterface::update_sim_display()
   if (headless_)
   {
     return;
+  }
+
+  if (plugin_visualization_scene_initialized_)
+  {
+    plugin_visualization_scene_.ngeom = 0;
+    for (auto& plugin : plugin_instances_)
+    {
+      plugin->update_visualization(mj_model_, mj_data_control_, &plugin_visualization_scene_);
+    }
   }
 
   // Only write user_texts_new_ when the render thread has consumed the previous
