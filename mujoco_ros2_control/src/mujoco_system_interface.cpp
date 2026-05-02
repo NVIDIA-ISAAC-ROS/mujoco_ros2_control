@@ -3342,6 +3342,7 @@ void MujocoSystemInterface::update_sim_display()
 
   if (plugin_visualization_scene_initialized_)
   {
+    mj::MutexLock lock(sim_->mtx);
     plugin_visualization_scene_.ngeom = 0;
     for (auto& plugin : plugin_instances_)
     {

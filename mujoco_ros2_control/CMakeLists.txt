@@ -160,6 +160,32 @@ else()
   endif()
   string(REPLACE "${MUJOCO_SIMULATE_SYNC_ORIGINAL}" "${MUJOCO_SIMULATE_SYNC_PATCHED}" MUJOCO_SIMULATE_SOURCE
                  "${MUJOCO_SIMULATE_SOURCE}")
+  set(MUJOCO_SIMULATE_MANAGED_SYNC_ORIGINAL [=[
+  if (!is_passive_) {
+    mjv_updateScene(m_, d_, &this->opt, &this->pert, &this->cam, mjCAT_ALL, &this->scn);
+  } else {
+]=])
+  set(MUJOCO_SIMULATE_MANAGED_SYNC_PATCHED [=[
+  if (!is_passive_) {
+    mjv_updateScene(m_, d_, &this->opt, &this->pert, &this->cam, mjCAT_ALL, &this->scn);
+
+    // append geoms from user_scn to scratch space
+    if (user_scn) {
+      user_scn_geoms_.clear();
+      user_scn_geoms_.reserve(user_scn->ngeom);
+      for (int i = 0; i < user_scn->ngeom; ++i) {
+        user_scn_geoms_.push_back(user_scn->geoms[i]);
+      }
+    }
+  } else {
+]=])
+  string(FIND "${MUJOCO_SIMULATE_SOURCE}" "${MUJOCO_SIMULATE_MANAGED_SYNC_ORIGINAL}"
+              MUJOCO_SIMULATE_MANAGED_SYNC_POSITION)
+  if(MUJOCO_SIMULATE_MANAGED_SYNC_POSITION EQUAL -1)
+    message(FATAL_ERROR "Could not patch MuJoCo Simulate::Sync(bool) for managed-mode user geoms")
+  endif()
+  string(REPLACE "${MUJOCO_SIMULATE_MANAGED_SYNC_ORIGINAL}" "${MUJOCO_SIMULATE_MANAGED_SYNC_PATCHED}"
+                 MUJOCO_SIMULATE_SOURCE "${MUJOCO_SIMULATE_SOURCE}")
   set(MUJOCO_SIMULATE_RENDER_ORIGINAL [=[
       if (!is_passive_) {
         Sync();
@@ -186,6 +212,20 @@ else()
   endif()
   string(REPLACE "${MUJOCO_SIMULATE_RENDER_ORIGINAL}" "${MUJOCO_SIMULATE_RENDER_PATCHED}" MUJOCO_SIMULATE_SOURCE
                  "${MUJOCO_SIMULATE_SOURCE}")
+  set(MUJOCO_SIMULATE_APPEND_ORDER_ORIGINAL "        this->scn.ngeom += ngeom;")
+  set(MUJOCO_SIMULATE_APPEND_ORDER_PATCHED [=[
+        for (int i = 0; i < ngeom; ++i) {
+          this->scn.geomorder[this->scn.ngeom + i] = this->scn.ngeom + i;
+        }
+        this->scn.ngeom += ngeom;
+]=])
+  string(FIND "${MUJOCO_SIMULATE_SOURCE}" "${MUJOCO_SIMULATE_APPEND_ORDER_ORIGINAL}"
+              MUJOCO_SIMULATE_APPEND_ORDER_POSITION)
+  if(MUJOCO_SIMULATE_APPEND_ORDER_POSITION EQUAL -1)
+    message(FATAL_ERROR "Could not patch MuJoCo Simulate::RenderLoop user geom order")
+  endif()
+  string(REPLACE "${MUJOCO_SIMULATE_APPEND_ORDER_ORIGINAL}" "${MUJOCO_SIMULATE_APPEND_ORDER_PATCHED}"
+                 MUJOCO_SIMULATE_SOURCE "${MUJOCO_SIMULATE_SOURCE}")
   file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
   file(WRITE "${MUJOCO_SIMULATE_PATCHED_SOURCE}" "${MUJOCO_SIMULATE_SOURCE}")
   target_sources(mujoco_simulate
