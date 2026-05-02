@@ -78,8 +78,8 @@ struct GantryVisualizationFixture
     scene.geomorder = geomorder.data();
 
     plugin.body_id_ = 0;
-    plugin.body_offset_ = { { -0.16, 0.0, 0.3 } };
-    plugin.anchor_pos_ = { { 0.84, 2.0, 1.5 } };
+    plugin.body_offset_ = { { 0.0, 0.0, 0.3 } };
+    plugin.anchor_pos_ = { { 1.0, 2.0, 1.5 } };
     plugin.enabled_ = true;
     plugin.spawn_pos_captured_ = true;
   }
@@ -114,9 +114,9 @@ TEST(PluginVisualizationTest, GantryDrawsRopeAndAnchorWhenEnabledAndCaptured)
   ASSERT_EQ(fixture.scene.ngeom, 2);
   EXPECT_EQ(fixture.scene.geoms[0].type, mjGEOM_CAPSULE);
   EXPECT_EQ(fixture.scene.geoms[1].type, mjGEOM_SPHERE);
-  EXPECT_NEAR(fixture.scene.geoms[0].pos[0], 0.84, 1e-6);
+  EXPECT_NEAR(fixture.scene.geoms[0].pos[0], 1.0, 1e-6);
   EXPECT_NEAR(fixture.scene.geoms[0].pos[1], 2.0, 1e-6);
-  EXPECT_NEAR(fixture.scene.geoms[1].pos[0], 0.84, 1e-6);
+  EXPECT_NEAR(fixture.scene.geoms[1].pos[0], 1.0, 1e-6);
   EXPECT_NEAR(fixture.scene.geoms[1].pos[1], 2.0, 1e-6);
   EXPECT_NEAR(fixture.scene.geoms[1].size[0], 0.08, 1e-6);
 }
