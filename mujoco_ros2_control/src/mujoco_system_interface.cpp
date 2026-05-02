@@ -78,6 +78,59 @@ using Seconds = std::chrono::duration<double>;
 
 namespace
 {
+struct PluginVisualizationSceneState
+{
+  PluginVisualizationSceneState()
+  {
+    mjv_defaultScene(&scene);
+  }
+
+  ~PluginVisualizationSceneState()
+  {
+    if (initialized)
+    {
+      mjv_freeScene(&scene);
+    }
+  }
+
+  mjvScene scene;
+  bool initialized{ false };
+};
+
+std::mutex plugin_visualization_scene_states_mutex;
+std::unordered_map<const mujoco_ros2_control::MujocoSystemInterface*, std::unique_ptr<PluginVisualizationSceneState>>
+    plugin_visualization_scene_states;
+
+PluginVisualizationSceneState&
+get_plugin_visualization_scene_state(const mujoco_ros2_control::MujocoSystemInterface* system_interface)
+{
+  std::lock_guard<std::mutex> lock(plugin_visualization_scene_states_mutex);
+  auto& state = plugin_visualization_scene_states[system_interface];
+  if (!state)
+  {
+    state = std::make_unique<PluginVisualizationSceneState>();
+  }
+  return *state;
+}
+
+PluginVisualizationSceneState*
+find_plugin_visualization_scene_state(const mujoco_ros2_control::MujocoSystemInterface* system_interface)
+{
+  std::lock_guard<std::mutex> lock(plugin_visualization_scene_states_mutex);
+  auto state = plugin_visualization_scene_states.find(system_interface);
+  if (state == plugin_visualization_scene_states.end())
+  {
+    return nullptr;
+  }
+  return state->second.get();
+}
+
+void erase_plugin_visualization_scene_state(const mujoco_ros2_control::MujocoSystemInterface* system_interface)
+{
+  std::lock_guard<std::mutex> lock(plugin_visualization_scene_states_mutex);
+  plugin_visualization_scene_states.erase(system_interface);
+}
+
 std::optional<std::string> get_hardware_parameter(const hardware_interface::HardwareInfo& hardware_info,
                                                   const std::string& key)
 {
@@ -739,11 +792,7 @@ MujocoSystemInterface::~MujocoSystemInterface()
   }
   plugin_instances_.clear();
 
-  if (plugin_visualization_scene_initialized_)
-  {
-    mjv_freeScene(&plugin_visualization_scene_);
-    plugin_visualization_scene_initialized_ = false;
-  }
+  erase_plugin_visualization_scene_state(this);
 
   // Cleanup data and the model, if they haven't been
   if (mj_data_)
@@ -830,7 +879,6 @@ MujocoSystemInterface::on_init(const hardware_interface::HardwareComponentInterf
   mjv_defaultCamera(&cam_);
   mjv_defaultOption(&opt_);
   mjv_defaultPerturb(&pert_);
-  mjv_defaultScene(&plugin_visualization_scene_);
 
   // There is a timing issue here as the rendering context must be attached to
   // the executing thread, but we require the simulation to be available on
@@ -960,9 +1008,10 @@ MujocoSystemInterface::on_init(const hardware_interface::HardwareComponentInterf
     mj_data_control_ = mj_makeData(mj_model_);
     if (!headless_)
     {
-      mjv_makeScene(mj_model_, &plugin_visualization_scene_, 32);
-      plugin_visualization_scene_initialized_ = true;
-      sim_->user_scn = &plugin_visualization_scene_;
+      auto& plugin_visualization_scene_state = get_plugin_visualization_scene_state(this);
+      mjv_makeScene(mj_model_, &plugin_visualization_scene_state.scene, 32);
+      plugin_visualization_scene_state.initialized = true;
+      sim_->user_scn = &plugin_visualization_scene_state.scene;
     }
   }
   if (!mj_data_ || !mj_data_control_)
@@ -3340,13 +3389,14 @@ void MujocoSystemInterface::update_sim_display()
     return;
   }
 
-  if (plugin_visualization_scene_initialized_)
+  auto* plugin_visualization_scene_state = find_plugin_visualization_scene_state(this);
+  if (plugin_visualization_scene_state && plugin_visualization_scene_state->initialized)
   {
     mj::MutexLock lock(sim_->mtx);
-    plugin_visualization_scene_.ngeom = 0;
+    plugin_visualization_scene_state->scene.ngeom = 0;
     for (auto& plugin : plugin_instances_)
     {
-      plugin->update_visualization(mj_model_, mj_data_control_, &plugin_visualization_scene_);
+      plugin->update_visualization(mj_model_, mj_data_control_, &plugin_visualization_scene_state->scene);
     }
   }
 
