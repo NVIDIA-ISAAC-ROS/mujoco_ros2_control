@@ -241,11 +241,23 @@ void VirtualGantryPlugin::update_visualization(const mjModel* /*model*/, const m
   }
 
   const mjtNum anchor_pos[3] = { anchor_pos_[0], anchor_pos_[1], anchor_pos_[2] };
-  const float rgba[4] = { 0.1f, 0.95f, 0.2f, 1.0f };
+  const float rope_rgba[4] = { 0.1f, 0.95f, 0.2f, 1.0f };
 
   mjvGeom* geom = &scene->geoms[scene->ngeom++];
-  mjv_initGeom(geom, mjGEOM_LINE, nullptr, nullptr, nullptr, rgba);
-  mjv_connector(geom, mjGEOM_LINE, 3.0, anchor_pos, attach_pos);
+  mjv_initGeom(geom, mjGEOM_CAPSULE, nullptr, nullptr, nullptr, rope_rgba);
+  geom->category = mjCAT_DECOR;
+  mjv_connector(geom, mjGEOM_CAPSULE, 0.01, anchor_pos, attach_pos);
+
+  if (scene->ngeom >= scene->maxgeom)
+  {
+    return;
+  }
+
+  const mjtNum anchor_size[3] = { 0.035, 0.0, 0.0 };
+  const float anchor_rgba[4] = { 1.0f, 0.85f, 0.05f, 1.0f };
+  mjvGeom* anchor_geom = &scene->geoms[scene->ngeom++];
+  mjv_initGeom(anchor_geom, mjGEOM_SPHERE, anchor_size, anchor_pos, nullptr, anchor_rgba);
+  anchor_geom->category = mjCAT_DECOR;
 }
 
 bool VirtualGantryPlugin::on_key(int key, int /*scancode*/, int action, int /*mods*/)

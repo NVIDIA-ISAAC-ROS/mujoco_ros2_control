@@ -63,8 +63,8 @@ struct GantryVisualizationFixture
   mjData data{};
   std::array<mjtNum, 3> xpos{ { 1.0, 2.0, 0.8 } };
   std::array<mjtNum, 9> xmat{ { 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0 } };
-  std::array<mjvGeom, 2> geoms{};
-  std::array<int, 2> geomorder{};
+  std::array<mjvGeom, 3> geoms{};
+  std::array<int, 3> geomorder{};
   mjvScene scene{};
 
   GantryVisualizationFixture()
@@ -105,14 +105,26 @@ TEST(PluginVisualizationTest, GantryDoesNotDrawBeforeAnchorCapture)
   EXPECT_EQ(fixture.scene.ngeom, 0);
 }
 
-TEST(PluginVisualizationTest, GantryDrawsRopeLineWhenEnabledAndCaptured)
+TEST(PluginVisualizationTest, GantryDrawsRopeAndAnchorWhenEnabledAndCaptured)
 {
   GantryVisualizationFixture fixture;
 
   fixture.plugin.update_visualization(&fixture.model, &fixture.data, &fixture.scene);
 
+  ASSERT_EQ(fixture.scene.ngeom, 2);
+  EXPECT_EQ(fixture.scene.geoms[0].type, mjGEOM_CAPSULE);
+  EXPECT_EQ(fixture.scene.geoms[1].type, mjGEOM_SPHERE);
+}
+
+TEST(PluginVisualizationTest, GantryStillDrawsRopeWhenOnlyOneVisualizationGeomIsAvailable)
+{
+  GantryVisualizationFixture fixture;
+  fixture.scene.maxgeom = 1;
+
+  fixture.plugin.update_visualization(&fixture.model, &fixture.data, &fixture.scene);
+
   ASSERT_EQ(fixture.scene.ngeom, 1);
-  EXPECT_EQ(fixture.scene.geoms[0].type, mjGEOM_LINE);
+  EXPECT_EQ(fixture.scene.geoms[0].type, mjGEOM_CAPSULE);
 }
 
 }  // namespace
