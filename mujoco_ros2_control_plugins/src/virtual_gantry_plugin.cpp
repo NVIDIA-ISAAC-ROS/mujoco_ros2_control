@@ -246,15 +246,15 @@ void VirtualGantryPlugin::update_visualization(const mjModel* /*model*/, const m
   mjvGeom* geom = &scene->geoms[scene->ngeom++];
   mjv_initGeom(geom, mjGEOM_CAPSULE, nullptr, nullptr, nullptr, rope_rgba);
   geom->category = mjCAT_DECOR;
-  mjv_connector(geom, mjGEOM_CAPSULE, 0.025, anchor_pos, attach_pos);
+  mjv_connector(geom, mjGEOM_CAPSULE, 0.0125, anchor_pos, attach_pos);
 
   if (scene->ngeom >= scene->maxgeom)
   {
     return;
   }
 
-  const mjtNum anchor_size[3] = { 0.08, 0.0, 0.0 };
-  const float anchor_rgba[4] = { 1.0f, 0.85f, 0.05f, 1.0f };
+  const mjtNum anchor_size[3] = { 0.04, 0.0, 0.0 };
+  const float anchor_rgba[4] = { 1.0f, 0.0f, 0.0f, 1.0f };
   mjvGeom* anchor_geom = &scene->geoms[scene->ngeom++];
   mjv_initGeom(anchor_geom, mjGEOM_SPHERE, anchor_size, anchor_pos, nullptr, anchor_rgba);
   anchor_geom->category = mjCAT_DECOR;

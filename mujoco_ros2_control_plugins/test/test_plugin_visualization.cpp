@@ -116,9 +116,14 @@ TEST(PluginVisualizationTest, GantryDrawsRopeAndAnchorWhenEnabledAndCaptured)
   EXPECT_EQ(fixture.scene.geoms[1].type, mjGEOM_SPHERE);
   EXPECT_NEAR(fixture.scene.geoms[0].pos[0], 1.0, 1e-6);
   EXPECT_NEAR(fixture.scene.geoms[0].pos[1], 2.0, 1e-6);
+  EXPECT_NEAR(fixture.scene.geoms[0].size[0], 0.0125, 1e-6);
   EXPECT_NEAR(fixture.scene.geoms[1].pos[0], 1.0, 1e-6);
   EXPECT_NEAR(fixture.scene.geoms[1].pos[1], 2.0, 1e-6);
-  EXPECT_NEAR(fixture.scene.geoms[1].size[0], 0.08, 1e-6);
+  EXPECT_NEAR(fixture.scene.geoms[1].size[0], 0.04, 1e-6);
+  EXPECT_NEAR(fixture.scene.geoms[1].rgba[0], 1.0, 1e-6);
+  EXPECT_NEAR(fixture.scene.geoms[1].rgba[1], 0.0, 1e-6);
+  EXPECT_NEAR(fixture.scene.geoms[1].rgba[2], 0.0, 1e-6);
+  EXPECT_NEAR(fixture.scene.geoms[1].rgba[3], 1.0, 1e-6);
 }
 
 TEST(PluginVisualizationTest, GantryStillDrawsRopeWhenOnlyOneVisualizationGeomIsAvailable)
