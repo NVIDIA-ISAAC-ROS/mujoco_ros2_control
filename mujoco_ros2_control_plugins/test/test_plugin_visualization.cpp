@@ -19,10 +19,33 @@
 #include <mujoco/mujoco.h>
 
 #include "mujoco_ros2_control_plugins/mujoco_ros2_control_plugins_base.hpp"
-
-#define private public
 #include "mujoco_ros2_control_plugins/virtual_gantry_plugin.hpp"
-#undef private
+
+namespace mujoco_ros2_control_plugins
+{
+class VirtualGantryPluginTestAccessor
+{
+public:
+  static void configure_captured(VirtualGantryPlugin& plugin)
+  {
+    plugin.body_id_ = 0;
+    plugin.body_offset_ = { { 0.0, 0.0, 0.3 } };
+    plugin.anchor_pos_ = { { 1.0, 2.0, 1.5 } };
+    plugin.enabled_ = true;
+    plugin.spawn_pos_captured_ = true;
+  }
+
+  static void set_enabled(VirtualGantryPlugin& plugin, bool enabled)
+  {
+    plugin.enabled_ = enabled;
+  }
+
+  static void set_spawn_pos_captured(VirtualGantryPlugin& plugin, bool captured)
+  {
+    plugin.spawn_pos_captured_ = captured;
+  }
+};
+}  // namespace mujoco_ros2_control_plugins
 
 namespace
 {
@@ -77,18 +100,14 @@ struct GantryVisualizationFixture
     scene.geoms = geoms.data();
     scene.geomorder = geomorder.data();
 
-    plugin.body_id_ = 0;
-    plugin.body_offset_ = { { 0.0, 0.0, 0.3 } };
-    plugin.anchor_pos_ = { { 1.0, 2.0, 1.5 } };
-    plugin.enabled_ = true;
-    plugin.spawn_pos_captured_ = true;
+    mujoco_ros2_control_plugins::VirtualGantryPluginTestAccessor::configure_captured(plugin);
   }
 };
 
 TEST(PluginVisualizationTest, GantryDoesNotDrawWhenDisabled)
 {
   GantryVisualizationFixture fixture;
-  fixture.plugin.enabled_ = false;
+  mujoco_ros2_control_plugins::VirtualGantryPluginTestAccessor::set_enabled(fixture.plugin, false);
 
   fixture.plugin.update_visualization(&fixture.model, &fixture.data, &fixture.scene);
 
@@ -98,7 +117,7 @@ TEST(PluginVisualizationTest, GantryDoesNotDrawWhenDisabled)
 TEST(PluginVisualizationTest, GantryDoesNotDrawBeforeAnchorCapture)
 {
   GantryVisualizationFixture fixture;
-  fixture.plugin.spawn_pos_captured_ = false;
+  mujoco_ros2_control_plugins::VirtualGantryPluginTestAccessor::set_spawn_pos_captured(fixture.plugin, false);
 
   fixture.plugin.update_visualization(&fixture.model, &fixture.data, &fixture.scene);
 

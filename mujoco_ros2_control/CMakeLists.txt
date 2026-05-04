@@ -152,6 +152,18 @@ else()
         user_scn_geoms_.push_back(user_scn->geoms[i]);
       }
     }
+
+    // pick up rendering flags changed via user_scn
+    if (user_scn) {
+      for (int i = 0; i < mjNRNDFLAG; ++i) {
+        if (user_scn->flags[i] != user_scn_flags_prev_[i]) {
+          scn.flags[i] = user_scn->flags[i];
+          pending_.ui_update_rendering = true;
+        }
+      }
+      Copy(user_scn->flags, scn.flags);
+      Copy(user_scn_flags_prev_, user_scn->flags);
+    }
   } else {
 ]=])
   string(FIND "${MUJOCO_SIMULATE_SOURCE}" "${MUJOCO_SIMULATE_SYNC_ORIGINAL}" MUJOCO_SIMULATE_SYNC_POSITION)
@@ -176,6 +188,18 @@ else()
       for (int i = 0; i < user_scn->ngeom; ++i) {
         user_scn_geoms_.push_back(user_scn->geoms[i]);
       }
+    }
+
+    // pick up rendering flags changed via user_scn
+    if (user_scn) {
+      for (int i = 0; i < mjNRNDFLAG; ++i) {
+        if (user_scn->flags[i] != user_scn_flags_prev_[i]) {
+          scn.flags[i] = user_scn->flags[i];
+          pending_.ui_update_rendering = true;
+        }
+      }
+      Copy(user_scn->flags, scn.flags);
+      Copy(user_scn_flags_prev_, user_scn->flags);
     }
   } else {
 ]=])
@@ -212,6 +236,7 @@ else()
   endif()
   string(REPLACE "${MUJOCO_SIMULATE_RENDER_ORIGINAL}" "${MUJOCO_SIMULATE_RENDER_PATCHED}" MUJOCO_SIMULATE_SOURCE
                  "${MUJOCO_SIMULATE_SOURCE}")
+  # Keep geomorder valid for every user-geom append path patched above.
   set(MUJOCO_SIMULATE_APPEND_ORDER_ORIGINAL "        this->scn.ngeom += ngeom;")
   set(MUJOCO_SIMULATE_APPEND_ORDER_PATCHED [=[
         for (int i = 0; i < ngeom; ++i) {

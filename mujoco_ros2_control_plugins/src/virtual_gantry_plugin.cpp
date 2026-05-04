@@ -224,8 +224,7 @@ void VirtualGantryPlugin::update_visualization(const mjModel* /*model*/, const m
   std::lock_guard<std::mutex> lock(state_mutex_);
 
   if (!enabled_ || !spawn_pos_captured_ || body_id_ < 0 || !data || !data->xpos || !data->xmat || !scene ||
-      !scene->geoms ||
-      scene->ngeom >= scene->maxgeom)
+      !scene->geoms || scene->ngeom >= scene->maxgeom)
   {
     return;
   }

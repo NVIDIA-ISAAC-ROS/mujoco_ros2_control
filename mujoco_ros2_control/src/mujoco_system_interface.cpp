@@ -1009,7 +1009,10 @@ MujocoSystemInterface::on_init(const hardware_interface::HardwareComponentInterf
     if (!headless_)
     {
       auto& plugin_visualization_scene_state = get_plugin_visualization_scene_state(this);
-      mjv_makeScene(mj_model_, &plugin_visualization_scene_state.scene, 32);
+      if (!plugin_visualization_scene_state.initialized)
+      {
+        mjv_makeScene(mj_model_, &plugin_visualization_scene_state.scene, 32);
+      }
       plugin_visualization_scene_state.initialized = true;
       sim_->user_scn = &plugin_visualization_scene_state.scene;
     }

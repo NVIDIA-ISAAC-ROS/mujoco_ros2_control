@@ -42,6 +42,8 @@ public:
   bool on_key(int key, int scancode, int action, int mods) override;
 
 private:
+  friend class VirtualGantryPluginTestAccessor;
+
   rclcpp::Node::SharedPtr node_;
 
   // Target body (attachment point on the robot).
