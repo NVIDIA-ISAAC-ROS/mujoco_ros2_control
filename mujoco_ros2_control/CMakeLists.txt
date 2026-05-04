@@ -134,125 +134,23 @@ else()
     POSITION_INDEPENDENT_CODE ON
   )
   set(MUJOCO_SIMULATE_PATCHED_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/generated/simulate.cc")
-  file(READ "${MUJOCO_SIMULATE_DIR}/simulate.cc" MUJOCO_SIMULATE_SOURCE)
-  set(MUJOCO_SIMULATE_SYNC_ORIGINAL [=[
-  if (!is_passive_) {
-    mjv_updateScene(this->m_, this->d_, &this->opt, &this->pert, &this->cam, mjCAT_ALL, &this->scn);
-  } else {
-]=])
-  set(MUJOCO_SIMULATE_SYNC_PATCHED [=[
-  if (!is_passive_) {
-    mjv_updateScene(this->m_, this->d_, &this->opt, &this->pert, &this->cam, mjCAT_ALL, &this->scn);
-
-    // append geoms from user_scn to scratch space
-    if (user_scn) {
-      user_scn_geoms_.clear();
-      user_scn_geoms_.reserve(user_scn->ngeom);
-      for (int i = 0; i < user_scn->ngeom; ++i) {
-        user_scn_geoms_.push_back(user_scn->geoms[i]);
-      }
-    }
-
-    // pick up rendering flags changed via user_scn
-    if (user_scn) {
-      for (int i = 0; i < mjNRNDFLAG; ++i) {
-        if (user_scn->flags[i] != user_scn_flags_prev_[i]) {
-          scn.flags[i] = user_scn->flags[i];
-          pending_.ui_update_rendering = true;
-        }
-      }
-      Copy(user_scn->flags, scn.flags);
-      Copy(user_scn_flags_prev_, user_scn->flags);
-    }
-  } else {
-]=])
-  string(FIND "${MUJOCO_SIMULATE_SOURCE}" "${MUJOCO_SIMULATE_SYNC_ORIGINAL}" MUJOCO_SIMULATE_SYNC_POSITION)
-  if(MUJOCO_SIMULATE_SYNC_POSITION EQUAL -1)
-    message(FATAL_ERROR "Could not patch MuJoCo Simulate::Sync for managed-mode user geoms")
-  endif()
-  string(REPLACE "${MUJOCO_SIMULATE_SYNC_ORIGINAL}" "${MUJOCO_SIMULATE_SYNC_PATCHED}" MUJOCO_SIMULATE_SOURCE
-                 "${MUJOCO_SIMULATE_SOURCE}")
-  set(MUJOCO_SIMULATE_MANAGED_SYNC_ORIGINAL [=[
-  if (!is_passive_) {
-    mjv_updateScene(m_, d_, &this->opt, &this->pert, &this->cam, mjCAT_ALL, &this->scn);
-  } else {
-]=])
-  set(MUJOCO_SIMULATE_MANAGED_SYNC_PATCHED [=[
-  if (!is_passive_) {
-    mjv_updateScene(m_, d_, &this->opt, &this->pert, &this->cam, mjCAT_ALL, &this->scn);
-
-    // append geoms from user_scn to scratch space
-    if (user_scn) {
-      user_scn_geoms_.clear();
-      user_scn_geoms_.reserve(user_scn->ngeom);
-      for (int i = 0; i < user_scn->ngeom; ++i) {
-        user_scn_geoms_.push_back(user_scn->geoms[i]);
-      }
-    }
-
-    // pick up rendering flags changed via user_scn
-    if (user_scn) {
-      for (int i = 0; i < mjNRNDFLAG; ++i) {
-        if (user_scn->flags[i] != user_scn_flags_prev_[i]) {
-          scn.flags[i] = user_scn->flags[i];
-          pending_.ui_update_rendering = true;
-        }
-      }
-      Copy(user_scn->flags, scn.flags);
-      Copy(user_scn_flags_prev_, user_scn->flags);
-    }
-  } else {
-]=])
-  string(FIND "${MUJOCO_SIMULATE_SOURCE}" "${MUJOCO_SIMULATE_MANAGED_SYNC_ORIGINAL}"
-              MUJOCO_SIMULATE_MANAGED_SYNC_POSITION)
-  if(MUJOCO_SIMULATE_MANAGED_SYNC_POSITION EQUAL -1)
-    message(FATAL_ERROR "Could not patch MuJoCo Simulate::Sync(bool) for managed-mode user geoms")
-  endif()
-  string(REPLACE "${MUJOCO_SIMULATE_MANAGED_SYNC_ORIGINAL}" "${MUJOCO_SIMULATE_MANAGED_SYNC_PATCHED}"
-                 MUJOCO_SIMULATE_SOURCE "${MUJOCO_SIMULATE_SOURCE}")
-  set(MUJOCO_SIMULATE_RENDER_ORIGINAL [=[
-      if (!is_passive_) {
-        Sync();
-      } else if (m_passive_ && d_passive_) {
-]=])
-  set(MUJOCO_SIMULATE_RENDER_PATCHED [=[
-      if (!is_passive_) {
-        Sync();
-
-        // add user geoms to scene
-        int nusergeom = user_scn_geoms_.size();
-        int ngeom = std::min(nusergeom, this->scn.maxgeom - this->scn.ngeom);
-        if (ngeom < nusergeom) {
-          mj_warning(this->d_, mjWARN_VGEOMFULL, this->scn.maxgeom);
-        }
-        std::memcpy(this->scn.geoms + this->scn.ngeom, user_scn_geoms_.data(),
-                    ngeom * sizeof(mjvGeom));
-        this->scn.ngeom += ngeom;
-      } else if (m_passive_ && d_passive_) {
-]=])
-  string(FIND "${MUJOCO_SIMULATE_SOURCE}" "${MUJOCO_SIMULATE_RENDER_ORIGINAL}" MUJOCO_SIMULATE_RENDER_POSITION)
-  if(MUJOCO_SIMULATE_RENDER_POSITION EQUAL -1)
-    message(FATAL_ERROR "Could not patch MuJoCo Simulate::RenderLoop for managed-mode user geoms")
-  endif()
-  string(REPLACE "${MUJOCO_SIMULATE_RENDER_ORIGINAL}" "${MUJOCO_SIMULATE_RENDER_PATCHED}" MUJOCO_SIMULATE_SOURCE
-                 "${MUJOCO_SIMULATE_SOURCE}")
-  # Keep geomorder valid for every user-geom append path patched above.
-  set(MUJOCO_SIMULATE_APPEND_ORDER_ORIGINAL "        this->scn.ngeom += ngeom;")
-  set(MUJOCO_SIMULATE_APPEND_ORDER_PATCHED [=[
-        for (int i = 0; i < ngeom; ++i) {
-          this->scn.geomorder[this->scn.ngeom + i] = this->scn.ngeom + i;
-        }
-        this->scn.ngeom += ngeom;
-]=])
-  string(FIND "${MUJOCO_SIMULATE_SOURCE}" "${MUJOCO_SIMULATE_APPEND_ORDER_ORIGINAL}"
-              MUJOCO_SIMULATE_APPEND_ORDER_POSITION)
-  if(MUJOCO_SIMULATE_APPEND_ORDER_POSITION EQUAL -1)
-    message(FATAL_ERROR "Could not patch MuJoCo Simulate::RenderLoop user geom order")
-  endif()
-  string(REPLACE "${MUJOCO_SIMULATE_APPEND_ORDER_ORIGINAL}" "${MUJOCO_SIMULATE_APPEND_ORDER_PATCHED}"
-                 MUJOCO_SIMULATE_SOURCE "${MUJOCO_SIMULATE_SOURCE}")
+  set(MUJOCO_SIMULATE_PATCH_FILE "${CMAKE_CURRENT_SOURCE_DIR}/patches/mujoco_simulate_managed_user_scn.patch")
+  find_program(PATCH_EXECUTABLE patch REQUIRED)
   file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
-  file(WRITE "${MUJOCO_SIMULATE_PATCHED_SOURCE}" "${MUJOCO_SIMULATE_SOURCE}")
+  configure_file("${MUJOCO_SIMULATE_DIR}/simulate.cc" "${MUJOCO_SIMULATE_PATCHED_SOURCE}" COPYONLY)
+  execute_process(
+    COMMAND "${PATCH_EXECUTABLE}" -p1 --forward --batch --input "${MUJOCO_SIMULATE_PATCH_FILE}"
+    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated"
+    RESULT_VARIABLE MUJOCO_SIMULATE_PATCH_RESULT
+    OUTPUT_VARIABLE MUJOCO_SIMULATE_PATCH_OUTPUT
+    ERROR_VARIABLE MUJOCO_SIMULATE_PATCH_ERROR
+  )
+  if(NOT MUJOCO_SIMULATE_PATCH_RESULT EQUAL 0)
+    message(FATAL_ERROR
+      "Could not patch MuJoCo Simulate for managed-mode user geoms:\n"
+      "${MUJOCO_SIMULATE_PATCH_OUTPUT}\n${MUJOCO_SIMULATE_PATCH_ERROR}"
+    )
+  endif()
   target_sources(mujoco_simulate
     PRIVATE ${MUJOCO_SIMULATE_DIR}/simulate.h
     PRIVATE ${MUJOCO_SIMULATE_PATCHED_SOURCE} ${MUJOCO_SIMULATE_DIR}/array_safety.h
