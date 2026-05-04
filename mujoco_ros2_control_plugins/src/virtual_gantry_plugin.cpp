@@ -219,6 +219,46 @@ void VirtualGantryPlugin::reset()
   last_update_time_ = -1.0;
 }
 
+void VirtualGantryPlugin::update_visualization(const mjModel* /*model*/, const mjData* data, mjvScene* scene)
+{
+  std::lock_guard<std::mutex> lock(state_mutex_);
+
+  if (!enabled_ || !spawn_pos_captured_ || body_id_ < 0 || !data || !data->xpos || !data->xmat || !scene ||
+      !scene->geoms || scene->ngeom >= scene->maxgeom)
+  {
+    return;
+  }
+
+  const double* xpos = &data->xpos[body_id_ * 3];
+  const double* xmat = &data->xmat[body_id_ * 9];
+
+  mjtNum attach_pos[3];
+  for (int i = 0; i < 3; ++i)
+  {
+    attach_pos[i] = xpos[i] + xmat[i * 3 + 0] * body_offset_[0] + xmat[i * 3 + 1] * body_offset_[1] +
+                    xmat[i * 3 + 2] * body_offset_[2];
+  }
+
+  const mjtNum anchor_pos[3] = { anchor_pos_[0], anchor_pos_[1], anchor_pos_[2] };
+  const float rope_rgba[4] = { 0.1f, 0.95f, 0.2f, 1.0f };
+
+  mjvGeom* geom = &scene->geoms[scene->ngeom++];
+  mjv_initGeom(geom, mjGEOM_CAPSULE, nullptr, nullptr, nullptr, rope_rgba);
+  geom->category = mjCAT_DECOR;
+  mjv_connector(geom, mjGEOM_CAPSULE, 0.0125, anchor_pos, attach_pos);
+
+  if (scene->ngeom >= scene->maxgeom)
+  {
+    return;
+  }
+
+  const mjtNum anchor_size[3] = { 0.04, 0.0, 0.0 };
+  const float anchor_rgba[4] = { 1.0f, 0.0f, 0.0f, 1.0f };
+  mjvGeom* anchor_geom = &scene->geoms[scene->ngeom++];
+  mjv_initGeom(anchor_geom, mjGEOM_SPHERE, anchor_size, anchor_pos, nullptr, anchor_rgba);
+  anchor_geom->category = mjCAT_DECOR;
+}
+
 bool VirtualGantryPlugin::on_key(int key, int /*scancode*/, int action, int /*mods*/)
 {
   // GLFW constants (stable values matching glfw3.h; avoids adding glfw as a plugin dependency).

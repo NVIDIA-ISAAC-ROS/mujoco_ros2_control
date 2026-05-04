@@ -59,6 +59,10 @@ install(TARGETS mujoco_ros2_control_plugins
 
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
+  ament_add_gtest(test_plugin_visualization test/test_plugin_visualization.cpp)
+  target_link_libraries(test_plugin_visualization
+    mujoco_ros2_control_plugins
+  )
   # find_package(ament_lint_auto REQUIRED)
   # ament_lint_auto_find_test_dependencies()
 endif()

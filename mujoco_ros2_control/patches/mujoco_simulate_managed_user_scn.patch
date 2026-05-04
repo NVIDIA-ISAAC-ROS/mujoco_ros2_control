@@ -1,0 +1,88 @@
+--- a/simulate.cc
++++ b/simulate.cc
+@@ -2161,6 +2161,27 @@ void Simulate::Sync(bool state_only) {
+   // update scene or sync data from user in passive mode
+   if (!is_passive_) {
+     mjv_updateScene(m_, d_, &this->opt, &this->pert, &this->cam, mjCAT_ALL, &this->scn);
++
++    // append geoms from user_scn to scratch space
++    if (user_scn) {
++      user_scn_geoms_.clear();
++      user_scn_geoms_.reserve(user_scn->ngeom);
++      for (int i = 0; i < user_scn->ngeom; ++i) {
++        user_scn_geoms_.push_back(user_scn->geoms[i]);
++      }
++    }
++
++    // pick up rendering flags changed via user_scn
++    if (user_scn) {
++      for (int i = 0; i < mjNRNDFLAG; ++i) {
++        if (user_scn->flags[i] != user_scn_flags_prev_[i]) {
++          scn.flags[i] = user_scn->flags[i];
++          pending_.ui_update_rendering = true;
++        }
++      }
++      Copy(user_scn->flags, scn.flags);
++      Copy(user_scn_flags_prev_, user_scn->flags);
++    }
+   } else {
+     if (state_only) {
+       int state_size = mj_stateSize(m_, mjSTATE_INTEGRATION);
+@@ -2400,6 +2421,27 @@ void Simulate::LoadOnRenderThread() {
+   // update scene in managed mode, in passive mode copy data from user (update in RenderLoop)
+   if (!is_passive_) {
+     mjv_updateScene(this->m_, this->d_, &this->opt, &this->pert, &this->cam, mjCAT_ALL, &this->scn);
++
++    // append geoms from user_scn to scratch space
++    if (user_scn) {
++      user_scn_geoms_.clear();
++      user_scn_geoms_.reserve(user_scn->ngeom);
++      for (int i = 0; i < user_scn->ngeom; ++i) {
++        user_scn_geoms_.push_back(user_scn->geoms[i]);
++      }
++    }
++
++    // pick up rendering flags changed via user_scn
++    if (user_scn) {
++      for (int i = 0; i < mjNRNDFLAG; ++i) {
++        if (user_scn->flags[i] != user_scn_flags_prev_[i]) {
++          scn.flags[i] = user_scn->flags[i];
++          pending_.ui_update_rendering = true;
++        }
++      }
++      Copy(user_scn->flags, scn.flags);
++      Copy(user_scn_flags_prev_, user_scn->flags);
++    }
+   } else {
+     mjopt_prev_ = m_->opt;
+     opt_prev_ = opt;
+@@ -2864,6 +2906,19 @@ void Simulate::RenderLoop() {
+       // update scene, doing a full sync if in fully managed mode
+       if (!is_passive_) {
+         Sync();
++
++        // add user geoms to scene
++        int nusergeom = user_scn_geoms_.size();
++        int ngeom = std::min(nusergeom, this->scn.maxgeom - this->scn.ngeom);
++        if (ngeom < nusergeom) {
++          mj_warning(this->d_, mjWARN_VGEOMFULL, this->scn.maxgeom);
++        }
++        std::memcpy(this->scn.geoms + this->scn.ngeom, user_scn_geoms_.data(),
++                    ngeom * sizeof(mjvGeom));
++        for (int i = 0; i < ngeom; ++i) {
++          this->scn.geomorder[this->scn.ngeom + i] = this->scn.ngeom + i;
++        }
++        this->scn.ngeom += ngeom;
+       } else if (m_passive_ && d_passive_) {
+         // the user has called Sync() in their code
+         mjv_updateScene(m_passive_, d_passive_,
+@@ -2877,6 +2932,9 @@ void Simulate::RenderLoop() {
+         }
+         std::memcpy(this->scn.geoms + this->scn.ngeom, user_scn_geoms_.data(),
+                     ngeom * sizeof(mjvGeom));
++        for (int i = 0; i < ngeom; ++i) {
++          this->scn.geomorder[this->scn.ngeom + i] = this->scn.ngeom + i;
++        }
+         this->scn.ngeom += ngeom;
+       }
+     }  // MutexLock (unblocks simulation thread)

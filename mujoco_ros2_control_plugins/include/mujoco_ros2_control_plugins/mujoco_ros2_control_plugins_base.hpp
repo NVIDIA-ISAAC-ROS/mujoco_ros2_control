@@ -74,6 +74,18 @@ public:
   }
 
   /**
+   * @brief Called when the MuJoCo viewer display is refreshed.
+   * @param model Pointer to the MuJoCo model
+   * @param data Pointer to the MuJoCo data
+   * @param scene Scene where the plugin can append viewer-only geoms
+   * @note Override to add lightweight viewer visualization. This must not mutate
+   *       physics state.
+   */
+  virtual void update_visualization(const mjModel* /*model*/, const mjData* /*data*/, mjvScene* /*scene*/)
+  {
+  }
+
+  /**
    * @brief Called from the GLFW UI thread on every key event.
    * @return true if the event was consumed (caller should not forward to the MuJoCo viewer).
    * @note Invoked on the UI thread, not the physics thread. Implementations must be

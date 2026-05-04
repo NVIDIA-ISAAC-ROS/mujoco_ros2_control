@@ -38,9 +38,12 @@ public:
   void update(const mjModel* model, mjData* data) override;
   void reset() override;
   void cleanup() override;
+  void update_visualization(const mjModel* model, const mjData* data, mjvScene* scene) override;
   bool on_key(int key, int scancode, int action, int mods) override;
 
 private:
+  friend class VirtualGantryPluginTestAccessor;
+
   rclcpp::Node::SharedPtr node_;
 
   // Target body (attachment point on the robot).
