@@ -516,6 +516,16 @@ MujocoSimulation::~MujocoSimulation()
 {
   shutdown();
 
+  if (plugin_visualization_scene_initialized_)
+  {
+    if (sim_)
+    {
+      sim_->user_scn = nullptr;
+    }
+    mjv_freeScene(&plugin_visualization_scene_);
+    plugin_visualization_scene_initialized_ = false;
+  }
+
   // Cleanup data and the model, if they haven't been
   if (mj_data_)
   {
@@ -734,6 +744,14 @@ bool MujocoSimulation::initialize(rclcpp::Node::SharedPtr node, const std::strin
       publish_control_state();
     }
   }
+  if (!headless_)
+  {
+    mjv_defaultScene(&plugin_visualization_scene_);
+    mjv_makeScene(mj_model_, &plugin_visualization_scene_, 32);
+    plugin_visualization_scene_initialized_ = true;
+    sim_->user_scn = &plugin_visualization_scene_;
+  }
+
   if (!mj_data_ || !snapshot_write_ || !snapshot_read_)
   {
     RCLCPP_FATAL(get_logger(), "Could not allocate mjData for '%s'", model_path_.c_str());
@@ -778,6 +796,12 @@ void MujocoSimulation::set_key_callback(KeyCallback callback)
 {
   std::lock_guard<std::mutex> lock(key_callback_mutex_);
   key_callback_ = std::move(callback);
+}
+
+void MujocoSimulation::set_visualization_callback(VisualizationCallback callback)
+{
+  std::lock_guard<std::mutex> lock(key_callback_mutex_);
+  visualization_callback_ = std::move(callback);
 }
 
 void MujocoSimulation::start_physics_thread()
@@ -1619,6 +1643,17 @@ void MujocoSimulation::update_sim_display()
   // holding sim_->mtx (Simulate::Render runs outside the lock). newtextrequest is
   // the single-producer/single-consumer flag: 0 = physics may write, 1 = render
   // may consume. Skip if the last update hasn't been consumed yet.
+  VisualizationCallback visualization_callback;
+  {
+    std::lock_guard<std::mutex> lock(key_callback_mutex_);
+    visualization_callback = visualization_callback_;
+  }
+  if (visualization_callback && plugin_visualization_scene_initialized_)
+  {
+    plugin_visualization_scene_.ngeom = 0;
+    visualization_callback(mj_model_, mj_data_, &plugin_visualization_scene_);
+  }
+
   if (sim_->newtextrequest.load(std::memory_order_acquire) != 0)
   {
     return;

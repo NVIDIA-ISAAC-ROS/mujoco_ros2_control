@@ -166,6 +166,10 @@ if(BUILD_TESTING)
     "$<TARGET_LINKER_FILE:tinyxml2::tinyxml2>"
     "LINKER:--pop-state"
   )
+  ament_add_gtest(test_plugin_visualization test/test_plugin_visualization.cpp)
+  target_link_libraries(test_plugin_visualization
+    mujoco_ros2_control_plugins_impl
+  )
 endif()
 
 # Install include directory

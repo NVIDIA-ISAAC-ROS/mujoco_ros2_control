@@ -254,6 +254,7 @@ MujocoSystemInterface::~MujocoSystemInterface()
   if (simulation_)
   {
     simulation_->set_key_callback({});
+    simulation_->set_visualization_callback({});
   }
 
   for (auto& plugin : plugin_instances_)
@@ -2363,6 +2364,13 @@ void MujocoSystemInterface::load_mujoco_plugins()
         consumed |= plugin->on_key(key, scancode, action, mods);
       }
       return consumed;
+    });
+
+    simulation_->set_visualization_callback([this](const mjModel* model, const mjData* data, mjvScene* scene) {
+      for (auto& plugin : plugin_instances_)
+      {
+        plugin->update_visualization(model, data, scene);
+      }
     });
   }
   catch (const pluginlib::PluginlibException& ex)

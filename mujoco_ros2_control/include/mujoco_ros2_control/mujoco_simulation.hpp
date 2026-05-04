@@ -110,6 +110,7 @@ public:
    */
   using ResetCallback = std::function<void(bool fill_initial_state)>;
   using KeyCallback = std::function<bool(int key, int scancode, int action, int mods)>;
+  using VisualizationCallback = std::function<void(const mjModel* model, const mjData* data, mjvScene* scene)>;
 
   /**
    * @brief Construct a new Mujoco Simulation object. This is a no-op until initialization.
@@ -150,6 +151,9 @@ public:
 
   /** Register a callback for viewer key events. An empty callback disables dispatch. */
   void set_key_callback(KeyCallback callback);
+
+  /** Register a callback that appends plugin-owned viewer geoms. */
+  void set_visualization_callback(VisualizationCallback callback);
 
   /**
    * @brief Start the physics thread. Must be called after load_model().
@@ -521,6 +525,9 @@ private:
   ResetCallback reset_callback_;
   std::mutex key_callback_mutex_;
   KeyCallback key_callback_;
+  VisualizationCallback visualization_callback_;
+  mjvScene plugin_visualization_scene_{};
+  bool plugin_visualization_scene_initialized_{ false };
 };
 
 }  // namespace mujoco_ros2_control

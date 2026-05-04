@@ -142,9 +142,27 @@ else()
     OUTPUT_NAME simulate
     POSITION_INDEPENDENT_CODE ON
   )
+  set(MUJOCO_SIMULATE_PATCHED_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/generated/simulate.cc")
+  set(MUJOCO_SIMULATE_PATCH_FILE "${CMAKE_CURRENT_SOURCE_DIR}/patches/mujoco_simulate_managed_user_scn.patch")
+  find_program(PATCH_EXECUTABLE patch REQUIRED)
+  file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
+  configure_file("${MUJOCO_SIMULATE_DIR}/simulate.cc" "${MUJOCO_SIMULATE_PATCHED_SOURCE}" COPYONLY)
+  execute_process(
+    COMMAND "${PATCH_EXECUTABLE}" -p1 --forward --batch --input "${MUJOCO_SIMULATE_PATCH_FILE}"
+    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated"
+    RESULT_VARIABLE MUJOCO_SIMULATE_PATCH_RESULT
+    OUTPUT_VARIABLE MUJOCO_SIMULATE_PATCH_OUTPUT
+    ERROR_VARIABLE MUJOCO_SIMULATE_PATCH_ERROR
+  )
+  if(NOT MUJOCO_SIMULATE_PATCH_RESULT EQUAL 0)
+    message(FATAL_ERROR
+      "Could not patch MuJoCo Simulate for managed-mode user geoms:\n"
+      "${MUJOCO_SIMULATE_PATCH_OUTPUT}\n${MUJOCO_SIMULATE_PATCH_ERROR}"
+    )
+  endif()
   target_sources(mujoco_simulate
     PRIVATE ${MUJOCO_SIMULATE_DIR}/simulate.h
-    PRIVATE ${MUJOCO_SIMULATE_DIR}/simulate.cc ${MUJOCO_SIMULATE_DIR}/array_safety.h
+    PRIVATE ${MUJOCO_SIMULATE_PATCHED_SOURCE} ${MUJOCO_SIMULATE_DIR}/array_safety.h
   )
   target_include_directories(mujoco_simulate PUBLIC ${MUJOCO_SIMULATE_DIR} ${MUJOCO_INCLUDE_DIR})
   target_link_libraries(mujoco_simulate PRIVATE lodepng mujoco::platform_ui_adapter ${MUJOCO_LIB})
