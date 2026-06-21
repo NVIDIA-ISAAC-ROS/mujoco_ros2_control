@@ -23,6 +23,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <thread>
@@ -351,6 +352,9 @@ private:
   std::vector<FTSensorData> ft_sensor_data_;
   std::vector<IMUSensorData> imu_sensor_data_;
   std::vector<SitePoseData> pose_sensor_data_;
+
+  bool lockstep_{ false };
+  uint32_t lockstep_steps_per_update_{ 1 };
 
   bool override_mujoco_actuator_positions_{ false };
   bool override_urdf_joint_positions_{ false };

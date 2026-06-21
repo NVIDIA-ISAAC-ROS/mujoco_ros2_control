@@ -20,6 +20,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <functional>
 #include <memory>
@@ -108,6 +109,14 @@ public:
    *        mj_data_->qpos/qvel/ctrl from a keyframe and the callback should restore the captured
    *        initial state. When false, a keyframe has already been applied.
    */
+  enum class SimulationStepResult
+  {
+    Completed,
+    Timeout,
+    Interrupted,
+    Diverged,
+  };
+
   using ResetCallback = std::function<void(bool fill_initial_state)>;
   using KeyCallback = std::function<bool(int key, int scancode, int action, int mods)>;
   using VisualizationCallback = std::function<void(const mjModel* model, const mjData* data, mjvScene* scene)>;
@@ -154,6 +163,12 @@ public:
 
   /** Register a callback that appends plugin-owned viewer geoms. */
   void set_visualization_callback(VisualizationCallback callback);
+
+  /** Keep the simulation paused and advance it only through explicit step requests. */
+  void set_lockstep(bool enabled);
+
+  /** Queue physics steps and wait for completion. */
+  SimulationStepResult request_simulation_steps(uint32_t steps, std::chrono::milliseconds timeout);
 
   /**
    * @brief Start the physics thread. Must be called after load_model().
@@ -508,6 +523,8 @@ private:
   rclcpp::Service<mujoco_ros2_control_msgs::srv::SetFreeJointState>::SharedPtr set_free_joint_state_service_;
 
   // Pending steps to execute while paused, and synchronization for blocking callers
+  bool lockstep_{ false };
+  std::mutex step_request_mutex_;
   std::atomic<uint32_t> pending_steps_{ 0 };
   std::atomic<bool> step_diverged_{ false };
   std::atomic<bool> steps_interrupted_{ false };

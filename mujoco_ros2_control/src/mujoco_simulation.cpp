@@ -804,6 +804,45 @@ void MujocoSimulation::set_visualization_callback(VisualizationCallback callback
   visualization_callback_ = std::move(callback);
 }
 
+void MujocoSimulation::set_lockstep(bool enabled)
+{
+  lockstep_ = enabled;
+  if (lockstep_)
+  {
+    sim_->run = false;
+  }
+}
+
+MujocoSimulation::SimulationStepResult MujocoSimulation::request_simulation_steps(
+    uint32_t steps, std::chrono::milliseconds timeout)
+{
+  std::lock_guard<std::mutex> request_lock(step_request_mutex_);
+  if (steps == 0)
+  {
+    return SimulationStepResult::Completed;
+  }
+
+  step_diverged_.store(false);
+  steps_interrupted_.store(false);
+  pending_steps_.fetch_add(steps);
+
+  std::unique_lock<std::mutex> lock(steps_cv_mutex_);
+  const bool completed = steps_cv_.wait_for(lock, timeout, [this] { return pending_steps_.load() == 0; });
+  if (!completed)
+  {
+    return SimulationStepResult::Timeout;
+  }
+  if (steps_interrupted_.load())
+  {
+    return SimulationStepResult::Interrupted;
+  }
+  if (step_diverged_.load())
+  {
+    return SimulationStepResult::Diverged;
+  }
+  return SimulationStepResult::Completed;
+}
+
 void MujocoSimulation::start_physics_thread()
 {
   // Disable the rangefinder flag at startup so that we don't get the yellow lines.
@@ -953,6 +992,14 @@ void MujocoSimulation::reset_world_callback(
 void MujocoSimulation::set_pause_callback(const std::shared_ptr<mujoco_ros2_control_msgs::srv::SetPause::Request> request,
                                           std::shared_ptr<mujoco_ros2_control_msgs::srv::SetPause::Response> response)
 {
+  if (lockstep_ && !request->paused)
+  {
+    response->success = false;
+    response->message = "Cannot resume simulation while MuJoCo lockstep mode is enabled.";
+    RCLCPP_WARN(get_logger(), "%s", response->message.c_str());
+    return;
+  }
+
   const bool currently_paused = !sim_->run;
   if (currently_paused == request->paused)
   {
@@ -1009,6 +1056,7 @@ void MujocoSimulation::step_simulation_callback(
     return;
   }
 
+  std::lock_guard<std::mutex> request_lock(step_request_mutex_);
   // Reset the divergence/interrupt flags and queue steps.
   step_diverged_.store(false);
   steps_interrupted_.store(false);

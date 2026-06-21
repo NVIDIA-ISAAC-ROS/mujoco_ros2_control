@@ -75,13 +75,16 @@ int main(int argc, char ** argv)
   const bool manage_overruns = cm->get_parameter_or<bool>("overruns.manage", true);
   RCLCPP_INFO(
     cm->get_logger(), "Overruns handling is : %s", manage_overruns ? "enabled" : "disabled");
+  const bool mujoco_lockstep = cm->get_parameter_or<bool>("mujoco.lockstep", false);
+  RCLCPP_INFO(
+    cm->get_logger(), "MuJoCo lockstep is : %s", mujoco_lockstep ? "enabled" : "disabled");
   const int thread_priority = cm->get_parameter_or<int>("thread_priority", kSchedPriority);
   RCLCPP_INFO(
     cm->get_logger(), "Spawning %s RT thread with scheduler priority: %d", cm->get_name(),
     thread_priority);
 
   std::thread cm_thread(
-    [cm, thread_priority, use_sim_time, manage_overruns]()
+    [cm, thread_priority, use_sim_time, manage_overruns, mujoco_lockstep]()
     {
       // portable function that gets now from the cm on humble or later appropriately
       auto get_cm_now = [](const auto& ctrl_mgr) -> rclcpp::Time {
@@ -141,7 +144,10 @@ int main(int argc, char ** argv)
       // TODO: Potentially remove this node depending on what comes out of the upstream PR:
       // https://github.com/ros-controls/ros2_control/pull/2654
       cm->get_clock()->wait_until_started();
-      cm->get_clock()->sleep_for(rclcpp::Duration::from_seconds(1.0 / cm->get_update_rate()));
+      if (!mujoco_lockstep)
+      {
+        cm->get_clock()->sleep_for(rclcpp::Duration::from_seconds(1.0 / cm->get_update_rate()));
+      }
 
       // for calculating sleep time
       auto const period = std::chrono::nanoseconds(1'000'000'000 / cm->get_update_rate());
@@ -165,7 +171,7 @@ int main(int argc, char ** argv)
         cm->write(get_cm_now(cm), measured_period);
 
         // wait until we hit the end of the period
-        if (use_sim_time)
+        if (use_sim_time && !mujoco_lockstep)
         {
           try
           {

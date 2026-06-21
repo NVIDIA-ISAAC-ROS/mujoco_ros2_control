@@ -329,6 +329,8 @@ MujocoSystemInterface::on_init(const hardware_interface::HardwareComponentInterf
   // Check for headless mode
   const bool headless =
       hardware_interface::parse_bool(get_hardware_parameter(get_hardware_info(), "headless").value_or("false"));
+  lockstep_ = hardware_interface::parse_bool(get_hardware_parameter(get_hardware_info(), "lockstep").value_or("false"));
+  RCLCPP_INFO_EXPRESSION(get_logger(), lockstep_, "Running MuJoCo in lockstep mode.");
 
   // Construct and start the ROS node spinning
   /// The PIDs config file
@@ -373,6 +375,36 @@ MujocoSystemInterface::on_init(const hardware_interface::HardwareComponentInterf
   if (!simulation_->initialize(get_node(), model_path, mujoco_model_topic, sim_speed_factor, headless))
   {
     return hardware_interface::CallbackReturn::ERROR;
+  }
+
+  simulation_->set_lockstep(lockstep_);
+  if (lockstep_)
+  {
+    const double configured_timestep =
+        std::stod(get_hardware_parameter(get_hardware_info(), "lockstep_timestep").value_or("0.0"));
+    if (configured_timestep > 0.0)
+    {
+      simulation_->model()->opt.timestep = configured_timestep;
+    }
+
+    const uint32_t configured_steps = static_cast<uint32_t>(
+        std::stoul(get_hardware_parameter(get_hardware_info(), "lockstep_steps_per_update").value_or("0")));
+    if (configured_steps > 0)
+    {
+      lockstep_steps_per_update_ = configured_steps;
+    }
+    else
+    {
+      const double controller_period = 1.0 / static_cast<double>(get_hardware_info().rw_rate);
+      lockstep_steps_per_update_ =
+          std::max<uint32_t>(1, static_cast<uint32_t>(std::round(controller_period / simulation_->model()->opt.timestep)));
+    }
+
+    const double lockstep_period =
+        static_cast<double>(lockstep_steps_per_update_) * simulation_->model()->opt.timestep;
+    RCLCPP_INFO(get_logger(),
+                "MuJoCo lockstep uses %u physics step(s) per ros2_control update: timestep %.6f s, effective period %.6f s",
+                lockstep_steps_per_update_, simulation_->model()->opt.timestep, lockstep_period);
   }
 
   // Time publisher will be pushed from the simulation wrapper.
@@ -1122,6 +1154,18 @@ hardware_interface::return_type MujocoSystemInterface::write(const rclcpp::Time&
 
   // Trigger to simulation to update its control inputs (this locks)
   simulation_->apply_control_data(control_data);
+
+  if (lockstep_)
+  {
+    const auto timeout = std::chrono::milliseconds(
+        std::max<uint64_t>(1000, static_cast<uint64_t>(lockstep_steps_per_update_) * 100));
+    const auto result = simulation_->request_simulation_steps(lockstep_steps_per_update_, timeout);
+    if (result != MujocoSimulation::SimulationStepResult::Completed)
+    {
+      RCLCPP_ERROR(get_logger(), "Failed to advance MuJoCo lockstep simulation.");
+      return hardware_interface::return_type::ERROR;
+    }
+  }
 
   return hardware_interface::return_type::OK;
 }
