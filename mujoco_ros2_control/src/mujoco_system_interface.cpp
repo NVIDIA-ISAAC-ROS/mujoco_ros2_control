@@ -867,6 +867,9 @@ MujocoSystemInterface::on_init(const hardware_interface::HardwareComponentInterf
   headless_ = hardware_interface::parse_bool(get_hardware_parameter(get_hardware_info(), "headless").value_or("false"));
   RCLCPP_INFO_EXPRESSION(get_logger(), headless_, "Running in HEADLESS mode.");
 
+  lockstep_ = hardware_interface::parse_bool(get_hardware_parameter(get_hardware_info(), "lockstep").value_or("false"));
+  RCLCPP_INFO_EXPRESSION(get_logger(), lockstep_, "Running MuJoCo in lockstep mode.");
+
   // We essentially reconstruct the 'simulate.cc::main()' function here, and
   // launch a Simulate object with all necessary rendering process/options
   // attached.
@@ -1000,6 +1003,39 @@ MujocoSystemInterface::on_init(const hardware_interface::HardwareComponentInterf
   {
     RCLCPP_FATAL(get_logger(), "MuJoCo failed to load the model");
     return hardware_interface::CallbackReturn::ERROR;
+  }
+
+  if (lockstep_)
+  {
+    const auto configured_timestep =
+        std::stod(get_hardware_parameter(get_hardware_info(), "lockstep_timestep").value_or("0.0"));
+    if (configured_timestep > 0.0)
+    {
+      mj_model_->opt.timestep = configured_timestep;
+    }
+
+    const auto configured_steps = static_cast<uint32_t>(
+        std::stoul(get_hardware_parameter(get_hardware_info(), "lockstep_steps_per_update").value_or("0")));
+    if (configured_steps > 0)
+    {
+      lockstep_steps_per_update_ = configured_steps;
+    }
+    else
+    {
+      const double controller_period = 1.0 / static_cast<double>(get_hardware_info().rw_rate);
+      lockstep_steps_per_update_ =
+          std::max<uint32_t>(1, static_cast<uint32_t>(std::round(controller_period / mj_model_->opt.timestep)));
+    }
+
+    const double lockstep_period = static_cast<double>(lockstep_steps_per_update_) * mj_model_->opt.timestep;
+    const double controller_period = 1.0 / static_cast<double>(get_hardware_info().rw_rate);
+    RCLCPP_INFO(
+        get_logger(),
+        "MuJoCo lockstep uses %u physics step(s) per ros2_control update: timestep %.6f s, effective period %.6f s",
+        lockstep_steps_per_update_, mj_model_->opt.timestep, lockstep_period);
+    RCLCPP_WARN_EXPRESSION(
+        get_logger(), std::abs(lockstep_period - controller_period) > 1e-9,
+        "MuJoCo lockstep period %.6f s does not match controller period %.6f s.", lockstep_period, controller_period);
   }
 
   {
@@ -1239,6 +1275,15 @@ MujocoSystemInterface::on_init(const hardware_interface::HardwareComponentInterf
     {
       const std::unique_lock<std::recursive_mutex> lock(*sim_mutex_);
       mj_forward(mj_model_, mj_data_);
+      if (lockstep_)
+      {
+        sim_->run = 0;
+        mj_step(mj_model_, mj_data_);
+        publish_clock();
+        mj_copyData(mj_data_control_, mj_model_, mj_data_);
+        sim_->AddToHistory();
+        step_count_.fetch_add(1);
+      }
     }
     // Blocks until terminated
     PhysicsLoop();
@@ -1840,6 +1885,18 @@ hardware_interface::return_type MujocoSystemInterface::write(const rclcpp::Time&
     else if (actuator.is_effort_control_enabled)
     {
       mj_data_control_->ctrl[actuator.mj_actuator_id] = actuator.effort_interface.command_;
+    }
+  }
+
+  if (lockstep_)
+  {
+    const auto timeout = std::chrono::milliseconds(
+        std::max<uint64_t>(1000, static_cast<uint64_t>(lockstep_steps_per_update_) * 100));
+    const auto step_result = request_simulation_steps(lockstep_steps_per_update_, timeout);
+    if (step_result != SimulationStepResult::Completed)
+    {
+      RCLCPP_ERROR(get_logger(), "Failed to advance MuJoCo lockstep simulation.");
+      return hardware_interface::return_type::ERROR;
     }
   }
 
@@ -3018,6 +3075,14 @@ void MujocoSystemInterface::set_pause_callback(
     const std::shared_ptr<mujoco_ros2_control_msgs::srv::SetPause::Request> request,
     std::shared_ptr<mujoco_ros2_control_msgs::srv::SetPause::Response> response)
 {
+  if (lockstep_ && !request->paused)
+  {
+    response->success = false;
+    response->message = "Cannot resume simulation: MuJoCo lockstep mode advances from ros2_control writes.";
+    RCLCPP_WARN(get_logger(), "%s", response->message.c_str());
+    return;
+  }
+
   const bool currently_paused = !sim_->run;
   if (currently_paused == request->paused)
   {
@@ -3074,32 +3139,25 @@ void MujocoSystemInterface::step_simulation_callback(
     return;
   }
 
-  // Reset the divergence/interrupt flags and queue steps.
-  step_diverged_.store(false);
-  steps_interrupted_.store(false);
-  pending_steps_.fetch_add(request->steps);
-
   // Block until all steps are executed or the timeout expires.
   // Timeout: at least 30 s, or 10 ms per step (whichever is larger).
   const auto timeout =
       std::chrono::milliseconds(std::max(static_cast<uint64_t>(30000), static_cast<uint64_t>(request->steps) * 10));
 
-  std::unique_lock<std::mutex> lock(steps_cv_mutex_);
-  const bool completed = steps_cv_.wait_for(lock, timeout, [this] { return pending_steps_.load() == 0; });
-
-  if (!completed)
+  const auto result = request_simulation_steps(request->steps, timeout);
+  if (result == SimulationStepResult::Timeout)
   {
     response->success = false;
     response->message = "Timeout waiting for " + std::to_string(request->steps) + " simulation step(s).";
     RCLCPP_WARN(get_logger(), "%s", response->message.c_str());
   }
-  else if (steps_interrupted_.load())
+  else if (result == SimulationStepResult::Interrupted)
   {
     response->success = false;
     response->message = "Steps aborted: simulation was resumed while steps were pending.";
     RCLCPP_WARN(get_logger(), "%s", response->message.c_str());
   }
-  else if (step_diverged_.load())
+  else if (result == SimulationStepResult::Diverged)
   {
     response->success = false;
     response->message = "Steps aborted: simulation diverged.";
@@ -3111,6 +3169,38 @@ void MujocoSystemInterface::step_simulation_callback(
     response->message = "Completed " + std::to_string(request->steps) + " simulation step(s).";
     RCLCPP_DEBUG(get_logger(), "%s", response->message.c_str());
   }
+}
+
+MujocoSystemInterface::SimulationStepResult MujocoSystemInterface::request_simulation_steps(
+    uint32_t steps, std::chrono::milliseconds timeout)
+{
+  std::lock_guard<std::mutex> request_lock(step_request_mutex_);
+
+  if (steps == 0)
+  {
+    return SimulationStepResult::Completed;
+  }
+
+  step_diverged_.store(false);
+  steps_interrupted_.store(false);
+  pending_steps_.fetch_add(steps);
+
+  std::unique_lock<std::mutex> lock(steps_cv_mutex_);
+  const bool completed = steps_cv_.wait_for(lock, timeout, [this] { return pending_steps_.load() == 0; });
+
+  if (!completed)
+  {
+    return SimulationStepResult::Timeout;
+  }
+  if (steps_interrupted_.load())
+  {
+    return SimulationStepResult::Interrupted;
+  }
+  if (step_diverged_.load())
+  {
+    return SimulationStepResult::Diverged;
+  }
+  return SimulationStepResult::Completed;
 }
 
 // simulate in background thread (while rendering in main thread)
@@ -3126,9 +3216,10 @@ void MujocoSystemInterface::PhysicsLoop()
   // run until asked to exit
   while (!sim_->exitrequest.load())
   {
-    // sleep for 1 ms or yield, to let main thread run
-    //  yield results in busy wait - which has better timing but kills battery life
-    if (sim_->run && sim_->busywait)
+    // sleep for 1 ms or yield, to let main thread run.
+    // Yield while step requests are pending so lockstep writes do not pay the
+    // idle sleep once for each physics step in the controller update.
+    if ((sim_->run && sim_->busywait) || pending_steps_.load() > 0)
     {
       std::this_thread::yield();
     }
@@ -3164,6 +3255,13 @@ void MujocoSystemInterface::PhysicsLoop()
       // run only if model is present
       if (mj_model_)
       {
+        if (lockstep_ && sim_->run)
+        {
+          RCLCPP_WARN(get_logger(), "Ignoring free-run request while MuJoCo lockstep mode is active.");
+          sim_->run = 0;
+          sim_->speed_changed = true;
+        }
+
         // running
         if (sim_->run)
         {
@@ -3347,7 +3445,7 @@ void MujocoSystemInterface::PhysicsLoop()
               sim_->speed_changed = true;
             }
           }
-          else
+          else if (!lockstep_)
           {
             mj_copyData(mj_data_control_, mj_model_, mj_data_);
 

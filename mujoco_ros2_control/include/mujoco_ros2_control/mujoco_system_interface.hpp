@@ -23,6 +23,7 @@
 
 #pragma once
 
+#include <chrono>
 #include <condition_variable>
 #include <memory>
 #include <mutex>
@@ -300,6 +301,9 @@ private:
    */
   void PhysicsLoop();
 
+  enum class SimulationStepResult { Completed, Timeout, Interrupted, Diverged };
+  SimulationStepResult request_simulation_steps(uint32_t steps, std::chrono::milliseconds timeout);
+
   /**
    * @brief Publishes the Simulate Application's timestamp to the /clock topic
    *
@@ -350,6 +354,10 @@ private:
   // Speed scaling parameter. if set to >0 then we ignore the value set in the simulate app and instead
   // attempt to loop at whatever this is set to. If this is <0, then we use the value from the app.
   double sim_speed_factor_;
+
+  // When enabled, ros2_control writes request a fixed number of MuJoCo physics steps.
+  bool lockstep_{ false };
+  uint32_t lockstep_steps_per_update_{ 1 };
 
   // True when running without a display (no GLFW window)
   bool headless_{ false };
@@ -442,6 +450,7 @@ private:
   rclcpp::Service<mujoco_ros2_control_msgs::srv::StepSimulation>::SharedPtr step_simulation_service_;
 
   // Pending steps to execute while paused, and synchronization for blocking callers
+  std::mutex step_request_mutex_;
   std::atomic<uint32_t> pending_steps_{ 0 };
   std::atomic<bool> step_diverged_{ false };
   std::atomic<bool> steps_interrupted_{ false };
