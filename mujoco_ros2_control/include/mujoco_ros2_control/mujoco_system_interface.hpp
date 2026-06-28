@@ -23,43 +23,31 @@
 
 #pragma once
 
-#include <chrono>
-#include <condition_variable>
+#include <cstdint>
 #include <memory>
-#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
 
 #include <hardware_interface/version.h>
-#include <atomic>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <hardware_interface/handle.hpp>
 #include <hardware_interface/hardware_info.hpp>
 #include <hardware_interface/system_interface.hpp>
 #include <hardware_interface/types/hardware_interface_return_values.hpp>
-#include <mujoco_ros2_control_msgs/srv/reset_world.hpp>
-#include <mujoco_ros2_control_msgs/srv/set_pause.hpp>
-#include <mujoco_ros2_control_msgs/srv/step_simulation.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/macros.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_lifecycle/node_interfaces/lifecycle_node_interface.hpp>
 #include <rclcpp_lifecycle/state.hpp>
 #include <realtime_tools/realtime_publisher.hpp>
-#include <rosgraph_msgs/msg/clock.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <tf2_ros/transform_broadcaster.hpp>
 
 #include <mujoco/mujoco.h>
 
-// Pull in the Simulate class and PhysicsThread/RenderLoop declarations:
-#include "glfw_adapter.h"  // for mj::GlfwAdapter
-#include "simulate.h"      // must be on your include path, handled by CMake
-
 #include "mujoco_ros2_control/data.hpp"
-#include "mujoco_ros2_control/mujoco_cameras.hpp"
-#include "mujoco_ros2_control/mujoco_lidar.hpp"
+#include "mujoco_ros2_control/mujoco_simulation.hpp"
 
 #include <pluginlib/class_list_macros.hpp>
 #include <pluginlib/class_loader.hpp>
@@ -89,7 +77,7 @@ public:
   /**
    * @brief ros2_control SystemInterface to wrap Mujocos Simulate application.
    *
-   * Supports Actuators, Force Torque/IMU Sensors, and RGB-D camera, and Lidar Sensors in ROS 2 simulations.
+   * Supports Actuators and Force Torque/IMU Sensors in ROS 2 simulations.
    * For more information on configuration refer to the docs, check the comment strings below, and refer to
    * the example in the test folder.
    */
@@ -138,6 +126,7 @@ public:
    * appropriate commands for the actuators in the MuJoCo simulation, considering any loaded transmissions or directly.
    */
   void joint_command_to_actuator_command();
+
   /**
    * @brief Returns a copy of the MuJoCo model.
    *
@@ -193,16 +182,6 @@ private:
   bool register_transmissions(const hardware_interface::HardwareInfo& info);
 
   bool initialize_initial_positions(const hardware_interface::HardwareInfo& info);
-
-  /**
-   * @brief Applies a keyframe to the simulation.
-   *
-   * This method sets the simulation state to the specified keyframe defined in the MuJoCo model.
-   * @param key_frame_name Name of the keyframe to apply.
-   *
-   * @return true if the keyframe was applied successfully, false otherwise.
-   */
-  bool apply_keyframe(const std::string& keyframe_name);
 
   /**
    * @brief Constructs all sensor data containers for the interface
@@ -281,43 +260,6 @@ private:
    */
   void reset_simulation_state(bool fill_initial_state);
 
-  /**
-   * @brief Service callback for reset_world service.
-   *
-   * This method resets all joints to their initial positions and velocities,
-   * and resets all free bodies (objects) to their spawned positions.
-   */
-  void reset_world_callback(const std::shared_ptr<mujoco_ros2_control_msgs::srv::ResetWorld::Request> request,
-                            std::shared_ptr<mujoco_ros2_control_msgs::srv::ResetWorld::Response> response);
-
-  void set_pause_callback(const std::shared_ptr<mujoco_ros2_control_msgs::srv::SetPause::Request> request,
-                          std::shared_ptr<mujoco_ros2_control_msgs::srv::SetPause::Response> response);
-
-  void step_simulation_callback(const std::shared_ptr<mujoco_ros2_control_msgs::srv::StepSimulation::Request> request,
-                                std::shared_ptr<mujoco_ros2_control_msgs::srv::StepSimulation::Response> response);
-
-  /**
-   * @brief Spins the physics simulation for the Simulate Application
-   */
-  void PhysicsLoop();
-
-  enum class SimulationStepResult { Completed, Timeout, Interrupted, Diverged };
-  SimulationStepResult request_simulation_steps(uint32_t steps, std::chrono::milliseconds timeout);
-
-  /**
-   * @brief Publishes the Simulate Application's timestamp to the /clock topic
-   *
-   * This enables pausing and restarting of the simulation through the application window.
-   */
-  void publish_clock();
-
-  /**
-   * @brief Updates the Simulate Application's display.
-   *
-   * This should be called after any changes to the simulation state to ensure the display is up to date.
-   */
-  void update_sim_display();
-
   /// Get the node of the MuJoCoSystemInterface.
   /**
    * \return node of the MuJoCoSystemInterface.
@@ -333,50 +275,31 @@ private:
    */
   void load_mujoco_plugins();
 
-  // System information
-  std::string model_path_;
-
-  // MuJoCo data pointers
-  mjModel* mj_model_{ nullptr };
-  mjData* mj_data_{ nullptr };
-
-  // Data container for control data
-  mjData* mj_data_control_{ nullptr };
-
-  // For rendering
-  mjvCamera cam_;
-  mjvOption opt_;
-  mjvPerturb pert_;
+  /**
+   * Helper functions to load plugins that have been specified in legacy ways, but aren't explicitly loaded.
+   * For example, camera support was moved from the core hardware interface to a plugin method in
+   * https://github.com/ros-controls/mujoco_ros2_control/pull/211, but to ensure we don't break existing
+   * seems we conditionally load the camera plugin and translate hardware interface configs to the relevant
+   * node parameters.
+   *
+   * TODO: Remove this once the camera / lidar xacro support have been officially removed.
+   */
+  bool auto_register_plugin_if_needed(const std::string& plugin_type, const std::string& plugin_ns,
+                                      const std::vector<std::string>& loaded_plugins);
+  void load_legacy_cameras(const std::vector<std::string>& plugins_ns);
+  void load_legacy_lidar(const std::vector<std::string>& plugins_ns);
 
   // Logger
   rclcpp::Logger logger_ = rclcpp::get_logger("MujocoSystemInterface");
 
-  // Speed scaling parameter. if set to >0 then we ignore the value set in the simulate app and instead
-  // attempt to loop at whatever this is set to. If this is <0, then we use the value from the app.
-  double sim_speed_factor_;
-
-  // When enabled, ros2_control writes request a fixed number of MuJoCo physics steps.
-  bool lockstep_{ false };
-  uint32_t lockstep_steps_per_update_{ 1 };
-
-  // True when running without a display (no GLFW window)
-  bool headless_{ false };
-
-  // Primary simulate object
-  std::unique_ptr<mujoco::Simulate> sim_;
-
-  // Threads for rendering physics, the UI simulation, and the ROS node
-  std::thread physics_thread_;
-  std::thread ui_thread_;
+  // The simulation host: owns the Simulate app, model/data, physics & UI threads,
+  // clock publisher, and reset/pause/step services.
+  std::unique_ptr<MujocoSimulation> simulation_;
 
   // Provides access to ROS interfaces for elements that require it
   std::shared_ptr<rclcpp::Node> mujoco_node_;
   std::unique_ptr<rclcpp::executors::MultiThreadedExecutor> executor_;
   std::thread executor_thread_;
-
-  // Primary clock publisher for the world
-  std::shared_ptr<rclcpp::Publisher<rosgraph_msgs::msg::Clock>> clock_publisher_;
-  realtime_tools::RealtimePublisher<rosgraph_msgs::msg::Clock>::SharedPtr clock_realtime_publisher_;
 
   // Actuators state publisher
   std::shared_ptr<rclcpp::Publisher<sensor_msgs::msg::JointState>> actuator_state_publisher_ = nullptr;
@@ -389,32 +312,22 @@ private:
   realtime_tools::RealtimePublisher<nav_msgs::msg::Odometry>::SharedPtr floating_base_realtime_publisher_ = nullptr;
   nav_msgs::msg::Odometry floating_base_msg_;
 
-  // Floating base TF broadcaster
-  std::unique_ptr<tf2_ros::TransformBroadcaster> floating_base_tf_broadcaster_ = nullptr;
+  std::unique_ptr<tf2_ros::TransformBroadcaster> floating_base_tf_broadcaster_;
   geometry_msgs::msg::TransformStamped floating_base_tf_msg_;
-  bool publish_floating_base_tf_ = true;
+  bool publish_floating_base_tf_{ true };
 
   // Free joint data
   int free_joint_id_ = -1;
   int free_joint_qpos_adr_ = -1;
   int free_joint_qvel_adr_ = -1;
 
-  // Containers for RGB-D cameras
-  std::unique_ptr<MujocoCameras> cameras_;
-
-  // Containers for LIDAR sensors
-  std::unique_ptr<MujocoLidar> lidar_sensors_;
-
-  // Mutex used inside simulate.h for protecting model/data, we keep a reference
-  // here to protect access to shared data.
-  // TODO: It would be far better to put all relevant data into a single container with accessors
-  //       in a common location rather than passing around the raw pointer to the mutex, but it would
-  //       require more work to pull it out of simulate.h.
-  std::recursive_mutex* sim_mutex_{ nullptr };
-
   // Data containers for the HW interface
   std::unordered_map<std::string, hardware_interface::ComponentInfo> joint_hw_info_;
   std::unordered_map<std::string, hardware_interface::ComponentInfo> sensors_hw_info_;
+
+  // Container for interacting with the underlying physics sim's data. This will be used to copy physics data
+  // during `read` and to apply control inputs during `write`.
+  mjData* mj_data_control_{ nullptr };
 
   // Data containers for the MuJoCo Actuators
   std::vector<MuJoCoActuatorData> mujoco_actuator_data_;
@@ -437,32 +350,9 @@ private:
   bool override_mujoco_actuator_positions_{ false };
   bool override_urdf_joint_positions_{ false };
 
-  // Reset world service
-  rclcpp::CallbackGroup::SharedPtr reset_world_cb_group_;
-  rclcpp::Service<mujoco_ros2_control_msgs::srv::ResetWorld>::SharedPtr reset_world_service_;
+  bool lockstep_{ false };
+  uint32_t lockstep_steps_per_update_{ 1 };
 
-  // Set pause service
-  rclcpp::CallbackGroup::SharedPtr set_pause_cb_group_;
-  rclcpp::Service<mujoco_ros2_control_msgs::srv::SetPause>::SharedPtr set_pause_service_;
-
-  // Step simulation service
-  rclcpp::CallbackGroup::SharedPtr step_simulation_cb_group_;
-  rclcpp::Service<mujoco_ros2_control_msgs::srv::StepSimulation>::SharedPtr step_simulation_service_;
-
-  // Pending steps to execute while paused, and synchronization for blocking callers
-  std::mutex step_request_mutex_;
-  std::atomic<uint32_t> pending_steps_{ 0 };
-  std::atomic<bool> step_diverged_{ false };
-  std::atomic<bool> steps_interrupted_{ false };
-  std::atomic<bool> keyboard_step_requested_{ false };
-  std::atomic<uint64_t> step_count_{ 0 };
-  std::mutex steps_cv_mutex_;
-  std::condition_variable steps_cv_;
-
-  // Storage for initial state (used for reset_world)
-  std::vector<mjtNum> initial_qpos_;
-  std::vector<mjtNum> initial_qvel_;
-  std::vector<mjtNum> initial_ctrl_;
   std::string initial_keyframe_ = "";
 };
 

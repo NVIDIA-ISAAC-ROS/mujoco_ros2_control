@@ -16,10 +16,11 @@ find_package(controller_manager REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(fmt REQUIRED)
 find_package(glfw3 REQUIRED)
+find_package(OpenGL REQUIRED COMPONENTS EGL)
+
 find_package(control_toolbox REQUIRED)
 find_package(hardware_interface REQUIRED)
 find_package(nav_msgs REQUIRED)
-find_package(sensor_msgs REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
@@ -170,9 +171,8 @@ endif()
 
 # MuJoCo ROS 2 control system interface (this package)
 add_library(mujoco_ros2_control SHARED
+    src/mujoco_simulation.cpp
     src/mujoco_system_interface.cpp
-    src/mujoco_cameras.cpp
-    src/mujoco_lidar.cpp
 )
 # Ensure MuJoCo library can be found at runtime regardless of how it was installed above.
 # mujoco_vendor installs libmujoco.so under opt/mujoco_vendor/lib/ relative to the
@@ -196,7 +196,6 @@ PUBLIC
   rclcpp::rclcpp
   rclcpp_lifecycle::rclcpp_lifecycle
   ${nav_msgs_TARGETS}
-  ${sensor_msgs_TARGETS}
   ${mujoco_ros2_control_msgs_TARGETS}
   pluginlib::pluginlib
   fmt::fmt
@@ -209,7 +208,11 @@ PRIVATE
   Threads::Threads
   lodepng
   glfw
+  OpenGL::EGL
+  OpenGL::OpenGL
+  ${CMAKE_DL_LIBS}
 )
+
 # Note: the transmissions_interface must NOT be statically linked against the library, only headers
 # should be used. Otherwise it will be loaded by the linker at process startup and its
 # PLUGINLIB_EXPORT_CLASS static constructors will have run before the ClassLoaders exist. This
@@ -287,7 +290,6 @@ ament_export_dependencies(
   rclcpp
   rclcpp_lifecycle
   nav_msgs
-  sensor_msgs
   mujoco_ros2_control_msgs
   mujoco_ros2_control_plugins
   pluginlib
