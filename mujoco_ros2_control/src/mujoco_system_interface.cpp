@@ -377,7 +377,7 @@ MujocoSystemInterface::on_init(const hardware_interface::HardwareComponentInterf
     return hardware_interface::CallbackReturn::ERROR;
   }
 
-  simulation_->set_lockstep(lockstep_);
+  simulation_->configure_lockstep(lockstep_);
   if (lockstep_)
   {
     const double configured_timestep =

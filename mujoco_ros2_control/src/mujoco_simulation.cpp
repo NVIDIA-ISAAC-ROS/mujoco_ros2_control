@@ -804,10 +804,10 @@ void MujocoSimulation::set_visualization_callback(VisualizationCallback callback
   visualization_callback_ = std::move(callback);
 }
 
-void MujocoSimulation::set_lockstep(bool enabled)
+void MujocoSimulation::configure_lockstep(bool enabled)
 {
-  lockstep_ = enabled;
-  if (lockstep_)
+  lockstep_.store(enabled);
+  if (lockstep_.load())
   {
     sim_->run = false;
   }
@@ -874,6 +874,14 @@ void MujocoSimulation::start_physics_thread()
     {
       const std::unique_lock<std::recursive_mutex> lock(*sim_mutex_);
       mj_forward(mj_model_, mj_data_);
+      if (lockstep_.load())
+      {
+        sim_->run = 0;
+        mj_step(mj_model_, mj_data_);
+        publish_clock();
+        sim_->AddToHistory();
+        step_count_.fetch_add(1);
+      }
     }
     // Blocks until terminated
     physics_loop();
@@ -992,7 +1000,7 @@ void MujocoSimulation::reset_world_callback(
 void MujocoSimulation::set_pause_callback(const std::shared_ptr<mujoco_ros2_control_msgs::srv::SetPause::Request> request,
                                           std::shared_ptr<mujoco_ros2_control_msgs::srv::SetPause::Response> response)
 {
-  if (lockstep_ && !request->paused)
+  if (lockstep_.load() && !request->paused)
   {
     response->success = false;
     response->message = "Cannot resume simulation while MuJoCo lockstep mode is enabled.";

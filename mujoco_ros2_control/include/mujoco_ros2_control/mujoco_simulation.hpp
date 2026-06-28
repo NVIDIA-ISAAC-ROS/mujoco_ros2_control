@@ -165,7 +165,7 @@ public:
   void set_visualization_callback(VisualizationCallback callback);
 
   /** Keep the simulation paused and advance it only through explicit step requests. */
-  void set_lockstep(bool enabled);
+  void configure_lockstep(bool enabled);
 
   /** Queue physics steps and wait for completion. */
   SimulationStepResult request_simulation_steps(uint32_t steps, std::chrono::milliseconds timeout);
@@ -523,7 +523,7 @@ private:
   rclcpp::Service<mujoco_ros2_control_msgs::srv::SetFreeJointState>::SharedPtr set_free_joint_state_service_;
 
   // Pending steps to execute while paused, and synchronization for blocking callers
-  bool lockstep_{ false };
+  std::atomic<bool> lockstep_{ false };
   std::mutex step_request_mutex_;
   std::atomic<uint32_t> pending_steps_{ 0 };
   std::atomic<bool> step_diverged_{ false };

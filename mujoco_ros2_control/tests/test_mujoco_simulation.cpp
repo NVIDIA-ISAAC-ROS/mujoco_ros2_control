@@ -19,6 +19,8 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
+
 #include <chrono>
 #include <cmath>
 #include <filesystem>
@@ -310,6 +312,45 @@ TEST_F(MujocoSimulationTest, PauseStepUnpause)
   ASSERT_TRUE(pause_future.get()->success);
   ASSERT_TRUE(wait_until([&]() { return sim_->data()->time > time_after_step; }))
       << "Time should advance after unpausing";
+}
+
+TEST_F(MujocoSimulationTest, LockstepRequestAdvancesExactStepCount)
+{
+  std::atomic<int64_t> latest_clock_ns{ 0 };
+  auto clock_subscription = node_->create_subscription<rosgraph_msgs::msg::Clock>(
+      "/clock", 10, [&latest_clock_ns](const rosgraph_msgs::msg::Clock::SharedPtr msg) {
+        latest_clock_ns.store(static_cast<int64_t>(msg->clock.sec) * 1'000'000'000LL + msg->clock.nanosec);
+      });
+  ASSERT_TRUE(initialize_sim());
+  sim_->configure_lockstep(true);
+  sim_->start_physics_thread();
+
+  ASSERT_TRUE(wait_until([&latest_clock_ns]() { return latest_clock_ns.load() > 0; }))
+      << "Lockstep startup did not publish an initial nonzero clock";
+
+  const double start_time = sim_->data()->time;
+  const uint64_t start_steps = sim_->step_count();
+  const auto result = sim_->request_simulation_steps(4, std::chrono::seconds(5));
+
+  EXPECT_EQ(result, mujoco_ros2_control::MujocoSimulation::SimulationStepResult::Completed);
+  EXPECT_EQ(sim_->step_count(), start_steps + 4);
+  EXPECT_NEAR(sim_->data()->time, start_time + 4 * sim_->model()->opt.timestep, TEST_TOLERANCE);
+}
+
+TEST_F(MujocoSimulationTest, LockstepRejectsResume)
+{
+  ASSERT_TRUE(initialize_sim());
+  sim_->configure_lockstep(true);
+  sim_->start_physics_thread();
+
+  const std::string ns = node_->get_fully_qualified_name();
+  auto client = node_->create_client<mujoco_ros2_control_msgs::srv::SetPause>(ns + "/set_pause");
+  ASSERT_TRUE(client->wait_for_service(std::chrono::seconds(5)));
+  auto request = std::make_shared<mujoco_ros2_control_msgs::srv::SetPause::Request>();
+  request->paused = false;
+  auto future = client->async_send_request(request);
+  ASSERT_EQ(future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+  EXPECT_FALSE(future.get()->success);
 }
 
 TEST_F(MujocoSimulationTest, ResetWorldTest)
