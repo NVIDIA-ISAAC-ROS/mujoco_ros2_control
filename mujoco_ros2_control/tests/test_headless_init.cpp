@@ -166,7 +166,9 @@ protected:
       hardware_interface::InterfaceInfo interface;
       interface.name = name;
       interface.size = 1;
+#if !ROS_DISTRO_HUMBLE
       interface.enable_limits = false;
+#endif
       return interface;
     };
     joint.state_interfaces = {
@@ -345,16 +347,33 @@ TEST_F(HeadlessInitTest, ImpedanceInterfacesDriveMotorControl)
 
   ASSERT_EQ(interface_->read(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.01)),
             hardware_interface::return_type::OK);
-  const auto position_state = find_state("hinge/position").get_optional<double>();
-  const auto velocity_state = find_state("hinge/velocity").get_optional<double>();
-  ASSERT_TRUE(position_state.has_value());
-  ASSERT_TRUE(velocity_state.has_value());
+  double position_state;
+  double velocity_state;
+#if ROS_DISTRO_HUMBLE
+  position_state = find_state("hinge/position").get_value();
+  velocity_state = find_state("hinge/velocity").get_value();
+#else
+  const auto position_state_optional = find_state("hinge/position").get_optional<double>();
+  const auto velocity_state_optional = find_state("hinge/velocity").get_optional<double>();
+  ASSERT_TRUE(position_state_optional.has_value());
+  ASSERT_TRUE(velocity_state_optional.has_value());
+  position_state = *position_state_optional;
+  velocity_state = *velocity_state_optional;
+#endif
 
+#if ROS_DISTRO_HUMBLE
+  find_command("hinge/position").set_value(0.5);
+  find_command("hinge/velocity").set_value(0.25);
+  find_command("hinge/effort").set_value(0.1);
+  find_command("hinge/kp").set_value(20.0);
+  find_command("hinge/kd").set_value(4.0);
+#else
   ASSERT_TRUE(find_command("hinge/position").set_value(0.5));
   ASSERT_TRUE(find_command("hinge/velocity").set_value(0.25));
   ASSERT_TRUE(find_command("hinge/effort").set_value(0.1));
   ASSERT_TRUE(find_command("hinge/kp").set_value(20.0));
   ASSERT_TRUE(find_command("hinge/kd").set_value(4.0));
+#endif
 
   ASSERT_EQ(interface_->perform_command_mode_switch(
                 { "hinge/position", "hinge/velocity", "hinge/effort", "hinge/kp", "hinge/kd" }, {}),
@@ -365,7 +384,7 @@ TEST_F(HeadlessInitTest, ImpedanceInterfacesDriveMotorControl)
   mjData* data = nullptr;
   interface_->get_data(data);
   ASSERT_NE(data, nullptr);
-  const double expected_effort = 0.1 + 20.0 * (0.5 - *position_state) + 4.0 * (0.25 - *velocity_state);
+  const double expected_effort = 0.1 + 20.0 * (0.5 - position_state) + 4.0 * (0.25 - velocity_state);
   EXPECT_NEAR(data->ctrl[0], expected_effort, 1e-9);
   mj_deleteData(data);
 }
