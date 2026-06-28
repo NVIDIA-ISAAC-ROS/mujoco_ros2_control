@@ -393,20 +393,28 @@ MujocoSystemInterface::on_init(const hardware_interface::HardwareComponentInterf
     }
     else
     {
+#if ROS_DISTRO_HUMBLE
+      // Humble's HardwareInfo does not expose the controller read/write rate.
+      // A caller can still select a different ratio with lockstep_steps_per_update.
+      lockstep_steps_per_update_ = 1;
+#else
       const double controller_period = 1.0 / static_cast<double>(get_hardware_info().rw_rate);
       lockstep_steps_per_update_ = std::max<uint32_t>(
           1, static_cast<uint32_t>(std::round(controller_period / simulation_->model()->opt.timestep)));
+#endif
     }
 
     const double lockstep_period = lockstep_steps_per_update_ * simulation_->model()->opt.timestep;
-    const double controller_period = 1.0 / static_cast<double>(get_hardware_info().rw_rate);
     RCLCPP_INFO(get_logger(),
                 "MuJoCo lockstep uses %u physics step(s) per ros2_control update: timestep %.6f s, effective period "
                 "%.6f s",
                 lockstep_steps_per_update_, simulation_->model()->opt.timestep, lockstep_period);
+#if !ROS_DISTRO_HUMBLE
+    const double controller_period = 1.0 / static_cast<double>(get_hardware_info().rw_rate);
     RCLCPP_WARN_EXPRESSION(get_logger(), std::abs(lockstep_period - controller_period) > 1e-9,
                            "MuJoCo lockstep period %.6f s does not match controller period %.6f s.", lockstep_period,
                            controller_period);
+#endif
   }
   simulation_->configure_lockstep(lockstep_);
 

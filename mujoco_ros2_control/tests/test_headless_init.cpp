@@ -120,7 +120,9 @@ protected:
     hardware_interface::HardwareInfo info;
     info.name = "test_mujoco";
     info.type = "system";
+#if !ROS_DISTRO_HUMBLE
     info.rw_rate = 100;
+#endif
     info.hardware_parameters["mujoco_model"] = test_model_path_;
     info.hardware_parameters["meshdir"] = "";
     info.hardware_parameters["headless"] = "true";           // Enable headless mode for CI compatibility
@@ -151,7 +153,9 @@ protected:
     hardware_interface::HardwareInfo info;
     info.name = "test_mujoco_impedance";
     info.type = "system";
+#if !ROS_DISTRO_HUMBLE
     info.rw_rate = 100;
+#endif
     info.hardware_parameters["mujoco_model"] = test_model_path_;
     info.hardware_parameters["headless"] = "true";
 
