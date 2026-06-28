@@ -26,6 +26,7 @@
 #include <fmt/compile.h>
 #include <fmt/ranges.h>
 
+#include <unistd.h>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -40,7 +41,6 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
-#include <unistd.h>
 
 #include <tinyxml2.h>
 #include <unordered_map>
@@ -406,11 +406,11 @@ MujocoSystemInterface::on_init(const hardware_interface::HardwareComponentInterf
 #endif
     }
 
-    const double lockstep_period =
-        static_cast<double>(lockstep_steps_per_update_) * simulation_->model()->opt.timestep;
-    RCLCPP_INFO(get_logger(),
-                "MuJoCo lockstep uses %u physics step(s) per ros2_control update: timestep %.6f s, effective period %.6f s",
-                lockstep_steps_per_update_, simulation_->model()->opt.timestep, lockstep_period);
+    const double lockstep_period = static_cast<double>(lockstep_steps_per_update_) * simulation_->model()->opt.timestep;
+    RCLCPP_INFO(
+        get_logger(),
+        "MuJoCo lockstep uses %u physics step(s) per ros2_control update: timestep %.6f s, effective period %.6f s",
+        lockstep_steps_per_update_, simulation_->model()->opt.timestep, lockstep_period);
 #if !ROS_DISTRO_HUMBLE
     const double controller_period = 1.0 / static_cast<double>(get_hardware_info().rw_rate);
     RCLCPP_WARN_EXPRESSION(get_logger(), std::abs(lockstep_period - controller_period) > 1e-9,
@@ -1125,8 +1125,7 @@ hardware_interface::return_type MujocoSystemInterface::write(const rclcpp::Time&
           std::isnan(actuator.effort_interface.command_) ? 0.0 : actuator.effort_interface.command_;
       const double velocity_command =
           std::isnan(actuator.velocity_interface.command_) ? 0.0 : actuator.velocity_interface.command_;
-      const double position_error =
-          actuator.position_interface.command_ - control_state_.qpos[actuator.mj_pos_adr];
+      const double position_error = actuator.position_interface.command_ - control_state_.qpos[actuator.mj_pos_adr];
       const double velocity_error = velocity_command - control_state_.qvel[actuator.mj_vel_adr];
       control_data->ctrl[actuator.mj_actuator_id] = effort_ff + kp * position_error + kd * velocity_error;
     }
@@ -1169,8 +1168,8 @@ hardware_interface::return_type MujocoSystemInterface::write(const rclcpp::Time&
 
   if (lockstep_)
   {
-    const auto timeout = std::chrono::milliseconds(
-        std::max<uint64_t>(1000, static_cast<uint64_t>(lockstep_steps_per_update_) * 100));
+    const auto timeout =
+        std::chrono::milliseconds(std::max<uint64_t>(1000, static_cast<uint64_t>(lockstep_steps_per_update_) * 100));
     const auto result = simulation_->request_simulation_steps(lockstep_steps_per_update_, timeout);
     if (result != MujocoSimulation::SimulationStepResult::Completed)
     {

@@ -597,9 +597,10 @@ bool MujocoSimulation::initialize(rclcpp::Node::SharedPtr node, const std::strin
   {
     // Launch the UI loop in the background
     ui_thread_ = std::thread([this, sim_ready]() {
-      sim_ = std::make_unique<mj::Simulate>(std::make_unique<ROS2ControlGlfwAdapter>(keyboard_step_requested_, key_callback_mutex_, key_callback_), &cam_,
-                                            &opt_, &pert_,
-                                            /* is_passive = */ false);
+      sim_ = std::make_unique<mj::Simulate>(
+          std::make_unique<ROS2ControlGlfwAdapter>(keyboard_step_requested_, key_callback_mutex_, key_callback_), &cam_,
+          &opt_, &pert_,
+          /* is_passive = */ false);
 
       // Add ros2 control icon for the taskbar
 #if AMENT_INDEX_CPP_VERSION_GTE(1, 13, 2)
@@ -813,8 +814,8 @@ void MujocoSimulation::configure_lockstep(bool enabled)
   }
 }
 
-MujocoSimulation::SimulationStepResult MujocoSimulation::request_simulation_steps(
-    uint32_t steps, std::chrono::milliseconds timeout)
+MujocoSimulation::SimulationStepResult MujocoSimulation::request_simulation_steps(uint32_t steps,
+                                                                                  std::chrono::milliseconds timeout)
 {
   std::lock_guard<std::mutex> request_lock(step_request_mutex_);
   if (steps == 0)

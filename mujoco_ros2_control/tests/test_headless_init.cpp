@@ -131,6 +131,60 @@ protected:
     return info;
   }
 
+  hardware_interface::HardwareInfo create_impedance_hardware_info()
+  {
+    std::ofstream file(test_model_path_);
+    file << R"(<?xml version="1.0"?>
+<mujoco model="test_impedance_control">
+  <option timestep="0.002" gravity="0 0 0"/>
+  <worldbody>
+    <body name="link" pos="0 0 0">
+      <joint name="hinge" type="hinge" axis="0 1 0"/>
+      <geom type="capsule" size="0.02" fromto="0 0 0 0.3 0 0" mass="1"/>
+    </body>
+  </worldbody>
+  <actuator>
+    <motor name="hinge" joint="hinge"/>
+  </actuator>
+</mujoco>
+)";
+    file.close();
+
+    hardware_interface::HardwareInfo info;
+    info.name = "test_mujoco_impedance";
+    info.type = "system";
+#if !ROS_DISTRO_HUMBLE
+    info.rw_rate = 100;
+#endif
+    info.hardware_parameters["mujoco_model"] = test_model_path_;
+    info.hardware_parameters["headless"] = "true";
+
+    hardware_interface::ComponentInfo joint;
+    joint.name = "hinge";
+    joint.type = "joint";
+    const auto make_interface = [](const std::string& name) {
+      hardware_interface::InterfaceInfo interface;
+      interface.name = name;
+      interface.size = 1;
+#if !ROS_DISTRO_HUMBLE
+      interface.enable_limits = false;
+#endif
+      return interface;
+    };
+    joint.state_interfaces = {
+      make_interface(hardware_interface::HW_IF_POSITION),
+      make_interface(hardware_interface::HW_IF_VELOCITY),
+      make_interface(hardware_interface::HW_IF_EFFORT),
+    };
+    joint.command_interfaces = {
+      make_interface(hardware_interface::HW_IF_POSITION), make_interface(hardware_interface::HW_IF_VELOCITY),
+      make_interface(hardware_interface::HW_IF_EFFORT),   make_interface(mujoco_ros2_control::HW_IF_KP),
+      make_interface(mujoco_ros2_control::HW_IF_KD),
+    };
+    info.joints.push_back(joint);
+    return info;
+  }
+
   std::string test_model_path_;
   hardware_interface::HardwareInfo hardware_info_;
   std::shared_ptr<mujoco_ros2_control::MujocoSystemInterface> interface_;
@@ -256,6 +310,168 @@ TEST_F(HeadlessInitTest, SpeedFactorParamInitialization)
 
   // sim_time should have advanced from zero
   EXPECT_GT(test_data->time, 0.0) << "Simulation time did not advance with sim_speed_factor=0.5";
+}
+
+TEST_F(HeadlessInitTest, ImpedanceInterfacesDriveMotorControl)
+{
+  const auto info = create_impedance_hardware_info();
+#if ROS_DISTRO_HUMBLE
+  const auto init_result = interface_->on_init(info);
+#else
+  hardware_interface::HardwareComponentInterfaceParams params;
+  params.hardware_info = info;
+  const auto init_result = interface_->on_init(params);
+#endif
+  ASSERT_EQ(init_result, hardware_interface::CallbackReturn::SUCCESS);
+
+  auto command_interfaces = interface_->export_command_interfaces();
+  auto state_interfaces = interface_->export_state_interfaces();
+  const auto find_command = [&command_interfaces](const std::string& name) -> hardware_interface::CommandInterface& {
+    auto it = std::find_if(command_interfaces.begin(), command_interfaces.end(),
+                           [&name](const auto& interface) { return interface.get_name() == name; });
+    if (it == command_interfaces.end())
+    {
+      throw std::runtime_error("Missing command interface: " + name);
+    }
+    return *it;
+  };
+  const auto find_state = [&state_interfaces](const std::string& name) -> hardware_interface::StateInterface& {
+    auto it = std::find_if(state_interfaces.begin(), state_interfaces.end(),
+                           [&name](const auto& interface) { return interface.get_name() == name; });
+    if (it == state_interfaces.end())
+    {
+      throw std::runtime_error("Missing state interface: " + name);
+    }
+    return *it;
+  };
+
+  ASSERT_EQ(interface_->read(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.01)),
+            hardware_interface::return_type::OK);
+  double position_state;
+  double velocity_state;
+#if ROS_DISTRO_HUMBLE
+  position_state = find_state("hinge/position").get_value();
+  velocity_state = find_state("hinge/velocity").get_value();
+#else
+  const auto position_state_optional = find_state("hinge/position").get_optional<double>();
+  const auto velocity_state_optional = find_state("hinge/velocity").get_optional<double>();
+  ASSERT_TRUE(position_state_optional.has_value());
+  ASSERT_TRUE(velocity_state_optional.has_value());
+  position_state = *position_state_optional;
+  velocity_state = *velocity_state_optional;
+#endif
+
+#if ROS_DISTRO_HUMBLE
+  find_command("hinge/position").set_value(0.5);
+  find_command("hinge/velocity").set_value(0.25);
+  find_command("hinge/effort").set_value(0.1);
+  find_command("hinge/kp").set_value(20.0);
+  find_command("hinge/kd").set_value(4.0);
+#else
+  ASSERT_TRUE(find_command("hinge/position").set_value(0.5));
+  ASSERT_TRUE(find_command("hinge/velocity").set_value(0.25));
+  ASSERT_TRUE(find_command("hinge/effort").set_value(0.1));
+  ASSERT_TRUE(find_command("hinge/kp").set_value(20.0));
+  ASSERT_TRUE(find_command("hinge/kd").set_value(4.0));
+#endif
+
+  ASSERT_EQ(interface_->perform_command_mode_switch(
+                { "hinge/position", "hinge/velocity", "hinge/effort", "hinge/kp", "hinge/kd" }, {}),
+            hardware_interface::return_type::OK);
+  ASSERT_EQ(interface_->write(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.01)),
+            hardware_interface::return_type::OK);
+
+  const double expected_effort = 0.1 + 20.0 * (0.5 - position_state) + 4.0 * (0.25 - velocity_state);
+  double observed_effort = 0.0;
+  for (size_t attempt = 0; attempt < 1000; ++attempt)
+  {
+    mjData* data = nullptr;
+    interface_->get_data(data);
+    ASSERT_NE(data, nullptr);
+    observed_effort = data->ctrl[0];
+    mj_deleteData(data);
+    if (std::abs(observed_effort - expected_effort) <= 1e-9)
+    {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  EXPECT_NEAR(observed_effort, expected_effort, 1e-9);
+}
+
+TEST_F(HeadlessInitTest, LockstepWriteAdvancesConfiguredStepCount)
+{
+  auto info = create_hardware_info();
+  info.hardware_parameters["lockstep"] = "true";
+  info.hardware_parameters["lockstep_steps_per_update"] = "2";
+#if ROS_DISTRO_HUMBLE
+  const auto init_result = interface_->on_init(info);
+#else
+  hardware_interface::HardwareComponentInterfaceParams params;
+  params.hardware_info = info;
+  const auto init_result = interface_->on_init(params);
+#endif
+  ASSERT_EQ(init_result, hardware_interface::CallbackReturn::SUCCESS);
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  mjData* before = nullptr;
+  mjModel* model = nullptr;
+  interface_->get_data(before);
+  interface_->get_model(model);
+  ASSERT_NE(before, nullptr);
+  ASSERT_NE(model, nullptr);
+  const double start_time = before->time;
+
+  ASSERT_EQ(interface_->write(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.01)),
+            hardware_interface::return_type::OK);
+
+  mjData* after = nullptr;
+  interface_->get_data(after);
+  ASSERT_NE(after, nullptr);
+  EXPECT_NEAR(after->time, start_time + 2 * model->opt.timestep, 1e-9);
+  mj_deleteData(before);
+  mj_deleteData(after);
+  mj_deleteModel(model);
+}
+
+TEST_F(HeadlessInitTest, FloatingBasePublishesConfiguredTransform)
+{
+  auto info = create_hardware_info();
+  info.hardware_parameters["odom_free_joint_name"] = "box1_joint";
+  info.hardware_parameters["odom_frame"] = "world";
+  info.hardware_parameters["publish_floating_base_tf"] = "true";
+#if ROS_DISTRO_HUMBLE
+  const auto init_result = interface_->on_init(info);
+#else
+  hardware_interface::HardwareComponentInterfaceParams params;
+  params.hardware_info = info;
+  const auto init_result = interface_->on_init(params);
+#endif
+  ASSERT_EQ(init_result, hardware_interface::CallbackReturn::SUCCESS);
+
+  auto listener = rclcpp::Node::make_shared("floating_base_tf_test_listener");
+  std::atomic<bool> received{ false };
+  auto subscription = listener->create_subscription<tf2_msgs::msg::TFMessage>(
+      "/tf", 10, [&received](const tf2_msgs::msg::TFMessage& message) {
+        for (const auto& transform : message.transforms)
+        {
+          if (transform.header.frame_id == "world" && transform.child_frame_id == "box1")
+          {
+            received.store(true);
+          }
+        }
+      });
+
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+  while (!received.load() && std::chrono::steady_clock::now() < deadline)
+  {
+    ASSERT_EQ(interface_->read(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.01)),
+              hardware_interface::return_type::OK);
+    rclcpp::spin_some(listener);
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  EXPECT_TRUE(received.load());
+  (void)subscription;
 }
 
 TEST(SimDisplayTextTest, ComposesAllRowsWhenRunning)
