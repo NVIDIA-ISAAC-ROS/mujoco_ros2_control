@@ -766,6 +766,14 @@ void MujocoSimulation::start_physics_thread()
     {
       const std::unique_lock<std::recursive_mutex> lock(*sim_mutex_);
       mj_forward(mj_model_, mj_data_);
+      if (lockstep_.load())
+      {
+        sim_->run = 0;
+        mj_step(mj_model_, mj_data_);
+        publish_clock();
+        sim_->AddToHistory();
+        step_count_.fetch_add(1);
+      }
     }
     // Blocks until terminated
     physics_loop();

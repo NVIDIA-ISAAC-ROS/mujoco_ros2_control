@@ -143,9 +143,9 @@ int main(int argc, char ** argv)
       //
       // TODO: Potentially remove this node depending on what comes out of the upstream PR:
       // https://github.com/ros-controls/ros2_control/pull/2654
+      cm->get_clock()->wait_until_started();
       if (!mujoco_lockstep)
       {
-        cm->get_clock()->wait_until_started();
         cm->get_clock()->sleep_for(rclcpp::Duration::from_seconds(1.0 / cm->get_update_rate()));
       }
 

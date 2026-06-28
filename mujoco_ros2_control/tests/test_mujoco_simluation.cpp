@@ -19,6 +19,7 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <filesystem>
@@ -292,9 +293,17 @@ TEST_F(MujocoSimulationTest, PauseStepUnpause)
 
 TEST_F(MujocoSimulationTest, LockstepRequestAdvancesExactStepCount)
 {
+  std::atomic<int64_t> latest_clock_ns{ 0 };
+  auto clock_subscription = node_->create_subscription<rosgraph_msgs::msg::Clock>(
+      "/clock", 10, [&latest_clock_ns](const rosgraph_msgs::msg::Clock::SharedPtr msg) {
+        latest_clock_ns.store(static_cast<int64_t>(msg->clock.sec) * 1'000'000'000LL + msg->clock.nanosec);
+      });
   ASSERT_TRUE(initialize_sim());
   sim_->configure_lockstep(true);
   sim_->start_physics_thread();
+
+  ASSERT_TRUE(wait_until([&latest_clock_ns]() { return latest_clock_ns.load() > 0; }))
+      << "Lockstep startup did not publish an initial nonzero clock";
 
   const double start_time = sim_->data()->time;
   const uint64_t start_steps = sim_->step_count();
