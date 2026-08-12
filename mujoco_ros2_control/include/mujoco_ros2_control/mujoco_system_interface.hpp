@@ -71,6 +71,20 @@ constexpr char HW_IF_FORCE[] = "force";
 
 namespace mujoco_ros2_control
 {
+/// ros2_control `<sensor>` parameter key selecting which MuJoCo sensor mapping to build.
+constexpr char MUJOCO_TYPE_PARAM[] = "mujoco_type";
+/// Optional `<sensor>` parameter key overriding the MJCF sensor name; defaults to the sensor's own name.
+constexpr char MUJOCO_SENSOR_NAME_PARAM[] = "mujoco_sensor_name";
+
+/// Force/torque sensor: reads a paired MJCF `force` + `torque` sensor.
+constexpr char MUJOCO_TYPE_FTS[] = "fts";
+/// IMU: reads a paired MJCF `framequat` + `gyro` + `accelerometer` sensor.
+constexpr char MUJOCO_TYPE_IMU[] = "imu";
+/// Site pose: reads a paired MJCF `framepos` + `framequat` sensor.
+constexpr char MUJOCO_TYPE_POSE[] = "pose";
+/// Magnetometer: reads a single MJCF `magnetometer` sensor.
+constexpr char MUJOCO_TYPE_MAGNETOMETER[] = "magnetometer";
+
 class MujocoSystemInterface : public hardware_interface::SystemInterface
 {
 public:
@@ -186,7 +200,7 @@ private:
   /**
    * @brief Constructs all sensor data containers for the interface
    *
-   * Pulls sensors (FTS and IMUs) out of the HardwareInfo and uses it to map relevant data containers
+   * Pulls sensors (FTS, IMUs, poses, and magnetometers) out of the HardwareInfo and uses it to map relevant data containers
    * in the ros2_control interface. There are expectations on the naming of sensors in both the MJCF and
    * the ros2_control xacro, as MuJoCo does not have direct support for either of these sensors.
    *
@@ -324,7 +338,7 @@ private:
 
   // Data containers for the HW interface
   std::unordered_map<std::string, hardware_interface::ComponentInfo> joint_hw_info_;
-  std::unordered_map<std::string, hardware_interface::ComponentInfo> sensors_hw_info_;
+  std::unordered_map<std::string, std::vector<hardware_interface::ComponentInfo>> sensors_hw_info_;
 
   // Container for interacting with the underlying physics sim's data.
   // Handed to plugins during `write` and used to stage control inputs.
@@ -352,6 +366,7 @@ private:
   std::vector<FTSensorData> ft_sensor_data_;
   std::vector<IMUSensorData> imu_sensor_data_;
   std::vector<SitePoseData> pose_sensor_data_;
+  std::vector<MagnetometerSensorData> magnetometer_sensor_data_;
 
   bool lockstep_{ false };
   uint32_t lockstep_steps_per_update_{ 1 };
