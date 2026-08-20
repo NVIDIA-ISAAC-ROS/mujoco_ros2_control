@@ -1515,15 +1515,22 @@ void MujocoSimulation::physics_loop()
   // run until asked to exit
   while (!sim_->exitrequest.load())
   {
-    // sleep for 1 ms or yield, to let main thread run
-    //  yield results in busy wait - which has better timing but kills battery life
-    if (sim_->run && sim_->busywait)
+    // Sleep while idle, but do not add a mandatory 1 ms delay between
+    // controller-requested lockstep steps. A lockstep request may contain
+    // multiple physics steps, all of which must complete within one control
+    // period.
+    const bool lockstep_step_pending = !sim_->run && pending_steps_.load() > 0;
+    if (!lockstep_step_pending)
     {
-      std::this_thread::yield();
-    }
-    else
-    {
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      // Yielding gives better timing while running, at the cost of CPU usage.
+      if (sim_->run && sim_->busywait)
+      {
+        std::this_thread::yield();
+      }
+      else
+      {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
     }
 
     {
