@@ -143,6 +143,33 @@ ActuatorType getActuatorType(const mjModel* mj_model, int mujoco_actuator_id)
 }
 
 /**
+ * @brief Restore an actuator's MJCF-authored gains after native-impedance control.
+ *
+ * No-op unless native-impedance mode actually overwrote them, so it is safe to
+ * call for every actuator on any mode switch.
+ */
+void restore_authored_position_gains(MujocoSimulation* simulation, MuJoCoActuatorData* actuator)
+{
+  if (!actuator->uses_native_position_impedance)
+  {
+    return;
+  }
+  {
+    std::lock_guard<std::recursive_mutex> sim_lock(simulation->mutex());
+    mjModel* mj_model = simulation->model();
+    const int act_id = actuator->mj_actuator_id;
+    mj_model->actuator_gainprm[act_id * mjNGAIN + 0] = actuator->authored_gainprm0;
+    mj_model->actuator_biasprm[act_id * mjNBIAS + 0] = actuator->authored_biasprm0;
+    mj_model->actuator_biasprm[act_id * mjNBIAS + 1] = actuator->authored_biasprm1;
+    mj_model->actuator_biasprm[act_id * mjNBIAS + 2] = actuator->authored_biasprm2;
+  }
+  actuator->uses_native_position_impedance = false;
+  actuator->applied_kp = std::numeric_limits<double>::quiet_NaN();
+  actuator->applied_kd = std::numeric_limits<double>::quiet_NaN();
+  actuator->applied_bias = std::numeric_limits<double>::quiet_NaN();
+}
+
+/**
  * @brief Get the MuJoCo actuator ID based on a name. First this method looks for a joint that matches the passed name,
  * and finds the actuator attached to it. If this doesn't exist, it will then look for the actuator with the passed name.
  * @param actuator_name The name of the actuator.
@@ -931,6 +958,7 @@ MujocoSystemInterface::perform_command_mode_switch(const std::vector<std::string
         actuator->is_position_pid_control_enabled = false;
         actuator->is_velocity_pid_control_enabled = false;
         actuator->is_impedance_control_enabled = false;
+        restore_authored_position_gains(simulation_.get(), actuator);
       }
     };
 
@@ -962,6 +990,11 @@ MujocoSystemInterface::perform_command_mode_switch(const std::vector<std::string
       for (auto* actuator : actuators)
       {
         actuator->is_impedance_control_enabled = true;
+        // A MuJoCo POSITION actuator reads ctrl as a position setpoint and
+        // applies gain/bias internally, so summing a torque into ctrl would be
+        // a unit mismatch. Drive those through the actuator's own gains
+        // instead; see the note in write().
+        actuator->uses_native_position_impedance = actuator->actuator_type == ActuatorType::POSITION;
       }
       RCLCPP_INFO(get_logger(), "Joint %s: impedance control enabled", joint_name.c_str());
     }
@@ -1172,9 +1205,45 @@ hardware_interface::return_type MujocoSystemInterface::write(const rclcpp::Time&
           std::isnan(actuator.effort_interface.command_) ? 0.0 : actuator.effort_interface.command_;
       const double velocity_command =
           std::isnan(actuator.velocity_interface.command_) ? 0.0 : actuator.velocity_interface.command_;
-      const double position_error = actuator.position_interface.command_ - control_state_.qpos[actuator.mj_pos_adr];
-      const double velocity_error = velocity_command - control_state_.qvel[actuator.mj_vel_adr];
-      control_data->ctrl[actuator.mj_actuator_id] = effort_ff + kp * position_error + kd * velocity_error;
+      if (actuator.uses_native_position_impedance)
+      {
+        // A MuJoCo POSITION actuator applies
+        //     force = gainprm[0]*ctrl + biasprm[0] + biasprm[1]*q + biasprm[2]*v
+        // so ctrl is a position setpoint, not a torque. Programming
+        //     gainprm[0] =  kp
+        //     biasprm[0] =  effort_ff + kd*v_target
+        //     biasprm[1] = -kp
+        //     biasprm[2] = -kd
+        // and passing the target through as ctrl makes the actuator apply
+        //     effort_ff + kp*(q_target - q) + kd*(v_target - v)
+        // which is exactly the torque the MOTOR branch below computes by hand.
+        // The MJCF's authored gains act as defaults and are restored when the
+        // joint is released; forcerange and ctrlrange still clamp as authored.
+        const int act_id = actuator.mj_actuator_id;
+        const double bias = effort_ff + kd * velocity_command;
+        // Only touch mjModel when a gain actually changed: unlike ctrl, which
+        // is staged, the model is shared with the physics loop and writing it
+        // needs the sim mutex.
+        if (!(kp == actuator.applied_kp && kd == actuator.applied_kd && bias == actuator.applied_bias))
+        {
+          std::lock_guard<std::recursive_mutex> sim_lock(simulation_->mutex());
+          mjModel* mj_model = simulation_->model();
+          mj_model->actuator_gainprm[act_id * mjNGAIN + 0] = kp;
+          mj_model->actuator_biasprm[act_id * mjNBIAS + 0] = bias;
+          mj_model->actuator_biasprm[act_id * mjNBIAS + 1] = -kp;
+          mj_model->actuator_biasprm[act_id * mjNBIAS + 2] = -kd;
+          actuator.applied_kp = kp;
+          actuator.applied_kd = kd;
+          actuator.applied_bias = bias;
+        }
+        control_data->ctrl[act_id] = actuator.position_interface.command_;
+      }
+      else
+      {
+        const double position_error = actuator.position_interface.command_ - control_state_.qpos[actuator.mj_pos_adr];
+        const double velocity_error = velocity_command - control_state_.qvel[actuator.mj_vel_adr];
+        control_data->ctrl[actuator.mj_actuator_id] = effort_ff + kp * position_error + kd * velocity_error;
+      }
     }
     else if (actuator.is_position_control_enabled)
     {
@@ -1396,6 +1465,17 @@ bool MujocoSystemInterface::register_mujoco_actuators()
     actuator_data.mj_vel_adr = simulation_->model()->jnt_dofadr[target_id];
     actuator_data.mj_joint_type = simulation_->model()->jnt_type[target_id];
     actuator_data.actuator_type = getActuatorType(simulation_->model(), actuator_data.mj_actuator_id);
+
+    // Remember the authored gains so native-impedance mode can restore them.
+    if (actuator_data.actuator_type == ActuatorType::POSITION)
+    {
+      const mjModel* mj_model = simulation_->model();
+      const int act_id = actuator_data.mj_actuator_id;
+      actuator_data.authored_gainprm0 = mj_model->actuator_gainprm[act_id * mjNGAIN + 0];
+      actuator_data.authored_biasprm0 = mj_model->actuator_biasprm[act_id * mjNBIAS + 0];
+      actuator_data.authored_biasprm1 = mj_model->actuator_biasprm[act_id * mjNBIAS + 1];
+      actuator_data.authored_biasprm2 = mj_model->actuator_biasprm[act_id * mjNBIAS + 2];
+    }
 
     // Initialize PID controllers for actuators that have them configured
     const auto initialize_position_pids = [&]() -> bool {

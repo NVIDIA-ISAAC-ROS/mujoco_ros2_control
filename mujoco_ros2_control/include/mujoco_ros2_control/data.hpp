@@ -28,6 +28,7 @@
 #include <hardware_interface/types/hardware_interface_type_values.hpp>
 #include "control_toolbox/pid_ros.hpp"
 
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -121,8 +122,26 @@ struct MuJoCoActuatorData
   bool is_velocity_control_enabled{ false };
   bool is_effort_control_enabled{ false };
   bool is_impedance_control_enabled{ false };  // Uses commanded kp/kd for PD control
+  // Impedance on a MuJoCo POSITION actuator is realised by the actuator itself
+  // rather than by summing a torque in write(): see MujocoSystemInterface::write.
+  bool uses_native_position_impedance{ false };
   bool has_pos_pid{ false };
   bool has_vel_pid{ false };
+
+  // Gains as authored in the MJCF, captured at registration for POSITION
+  // actuators so that native-impedance mode can overwrite them and restore
+  // them when the joint is released.
+  double authored_gainprm0{ std::numeric_limits<double>::quiet_NaN() };
+  double authored_biasprm0{ std::numeric_limits<double>::quiet_NaN() };
+  double authored_biasprm1{ std::numeric_limits<double>::quiet_NaN() };
+  double authored_biasprm2{ std::numeric_limits<double>::quiet_NaN() };
+
+  // Last gains pushed into mjModel by native-impedance mode. Writing the model
+  // needs the sim mutex, so it is done only when a commanded gain actually
+  // changes rather than on every control cycle.
+  double applied_kp{ std::numeric_limits<double>::quiet_NaN() };
+  double applied_kd{ std::numeric_limits<double>::quiet_NaN() };
+  double applied_bias{ std::numeric_limits<double>::quiet_NaN() };
 
   void copy_state_to_transmission()
   {
