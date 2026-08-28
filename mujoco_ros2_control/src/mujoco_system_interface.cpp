@@ -150,23 +150,13 @@ ActuatorType getActuatorType(const mjModel* mj_model, int mujoco_actuator_id)
  */
 void restore_authored_position_gains(MujocoSimulation* simulation, MuJoCoActuatorData* actuator)
 {
-  if (!actuator->uses_native_position_impedance)
+  if (!actuator->uses_native_position_impedance || !actuator->authored_parameters)
   {
     return;
   }
-  {
-    std::lock_guard<std::recursive_mutex> sim_lock(simulation->mutex());
-    mjModel* mj_model = simulation->model();
-    const int act_id = actuator->mj_actuator_id;
-    mj_model->actuator_gainprm[act_id * mjNGAIN + 0] = actuator->authored_gainprm0;
-    mj_model->actuator_biasprm[act_id * mjNBIAS + 0] = actuator->authored_biasprm0;
-    mj_model->actuator_biasprm[act_id * mjNBIAS + 1] = actuator->authored_biasprm1;
-    mj_model->actuator_biasprm[act_id * mjNBIAS + 2] = actuator->authored_biasprm2;
-  }
+  simulation->set_actuator_parameters({ actuator->mj_actuator_id, *actuator->authored_parameters });
   actuator->uses_native_position_impedance = false;
-  actuator->applied_kp = std::numeric_limits<double>::quiet_NaN();
-  actuator->applied_kd = std::numeric_limits<double>::quiet_NaN();
-  actuator->applied_bias = std::numeric_limits<double>::quiet_NaN();
+  actuator->last_requested_parameters.reset();
 }
 
 /**
@@ -871,6 +861,11 @@ MujocoSystemInterface::on_deactivate(const rclcpp_lifecycle::State& /*previous_s
 {
   RCLCPP_INFO(get_logger(), "Deactivating MuJoCo hardware interface and shutting down Simulate...");
 
+  for (auto& actuator : mujoco_actuator_data_)
+  {
+    restore_authored_position_gains(simulation_.get(), &actuator);
+  }
+
   // TODO: Should we shut MuJoCo things down here or in the destructor?
 
   return hardware_interface::CallbackReturn::SUCCESS;
@@ -1185,6 +1180,7 @@ hardware_interface::return_type MujocoSystemInterface::write(const rclcpp::Time&
   };
 
   mjData* control_data = plugin_instances_.empty() ? mj_data_control_ : simulation_->acquire_data_snapshot();
+  std::vector<ActuatorParameterUpdate> actuator_parameter_updates;
 
   // Mirror the sim's actual ctrl so entries we do not command below (e.g., passive actuators)
   // are staged with their current values rather than a possibly stale snapshot.
@@ -1219,24 +1215,13 @@ hardware_interface::return_type MujocoSystemInterface::write(const rclcpp::Time&
         // which is exactly the torque the MOTOR branch below computes by hand.
         // The MJCF's authored gains act as defaults and are restored when the
         // joint is released; forcerange and ctrlrange still clamp as authored.
-        const int act_id = actuator.mj_actuator_id;
-        const double bias = effort_ff + kd * velocity_command;
-        // Only touch mjModel when a gain actually changed: unlike ctrl, which
-        // is staged, the model is shared with the physics loop and writing it
-        // needs the sim mutex.
-        if (!(kp == actuator.applied_kp && kd == actuator.applied_kd && bias == actuator.applied_bias))
+        const ActuatorAffineParameters parameters{ kp, effort_ff + kd * velocity_command, -kp, -kd };
+        if (!actuator.last_requested_parameters || parameters != *actuator.last_requested_parameters)
         {
-          std::lock_guard<std::recursive_mutex> sim_lock(simulation_->mutex());
-          mjModel* mj_model = simulation_->model();
-          mj_model->actuator_gainprm[act_id * mjNGAIN + 0] = kp;
-          mj_model->actuator_biasprm[act_id * mjNBIAS + 0] = bias;
-          mj_model->actuator_biasprm[act_id * mjNBIAS + 1] = -kp;
-          mj_model->actuator_biasprm[act_id * mjNBIAS + 2] = -kd;
-          actuator.applied_kp = kp;
-          actuator.applied_kd = kd;
-          actuator.applied_bias = bias;
+          actuator_parameter_updates.push_back({ actuator.mj_actuator_id, parameters });
+          actuator.last_requested_parameters = parameters;
         }
-        control_data->ctrl[act_id] = actuator.position_interface.command_;
+        control_data->ctrl[actuator.mj_actuator_id] = actuator.position_interface.command_;
       }
       else
       {
@@ -1282,7 +1267,7 @@ hardware_interface::return_type MujocoSystemInterface::write(const rclcpp::Time&
   }
 
   // Trigger to simulation to update its control inputs (this locks)
-  simulation_->apply_control_data(control_data);
+  simulation_->apply_control_data(control_data, actuator_parameter_updates);
 
   if (lockstep_)
   {
@@ -1471,10 +1456,10 @@ bool MujocoSystemInterface::register_mujoco_actuators()
     {
       const mjModel* mj_model = simulation_->model();
       const int act_id = actuator_data.mj_actuator_id;
-      actuator_data.authored_gainprm0 = mj_model->actuator_gainprm[act_id * mjNGAIN + 0];
-      actuator_data.authored_biasprm0 = mj_model->actuator_biasprm[act_id * mjNBIAS + 0];
-      actuator_data.authored_biasprm1 = mj_model->actuator_biasprm[act_id * mjNBIAS + 1];
-      actuator_data.authored_biasprm2 = mj_model->actuator_biasprm[act_id * mjNBIAS + 2];
+      actuator_data.authored_parameters = ActuatorAffineParameters{ mj_model->actuator_gainprm[act_id * mjNGAIN],
+                                                                    mj_model->actuator_biasprm[act_id * mjNBIAS],
+                                                                    mj_model->actuator_biasprm[act_id * mjNBIAS + 1],
+                                                                    mj_model->actuator_biasprm[act_id * mjNBIAS + 2] };
     }
 
     // Initialize PID controllers for actuators that have them configured
@@ -2418,6 +2403,8 @@ void MujocoSystemInterface::reset_simulation_state(bool /*fill_initial_state*/)
   // Reset command interfaces to initial position commands
   for (auto& actuator : mujoco_actuator_data_)
   {
+    restore_authored_position_gains(simulation_.get(), &actuator);
+    actuator.is_impedance_control_enabled = false;
     actuator.position_interface.state_ = simulation_->data()->qpos[actuator.mj_pos_adr];
     actuator.velocity_interface.state_ = simulation_->data()->qvel[actuator.mj_vel_adr];
     actuator.effort_interface.state_ = 0.0;
@@ -2461,6 +2448,7 @@ void MujocoSystemInterface::reset_simulation_state(bool /*fill_initial_state*/)
   // Set joint commands to current state (maintaining position control)
   for (auto& joint : urdf_joint_data_)
   {
+    joint.is_impedance_control_enabled = false;
     joint.position_interface.command_ = joint.position_interface.state_;
     joint.velocity_interface.command_ = 0.0;
     joint.effort_interface.command_ = 0.0;
@@ -2473,29 +2461,19 @@ void MujocoSystemInterface::reset_simulation_state(bool /*fill_initial_state*/)
 }
 
 void MujocoSystemInterface::get_model(mjModel*& dest)
-{
-  simulation_->copy_physics_model(dest);
-}
+{ simulation_->copy_physics_model(dest); }
 
 void MujocoSystemInterface::get_data(mjData*& dest)
-{
-  simulation_->copy_physics_data(dest);
-}
+{ simulation_->copy_physics_data(dest); }
 
 void MujocoSystemInterface::set_data(mjData* mj_data)
-{
-  simulation_->overwrite_physics_data(mj_data);
-}
+{ simulation_->overwrite_physics_data(mj_data); }
 
 rclcpp::Logger MujocoSystemInterface::get_logger() const
-{
-  return logger_;
-}
+{ return logger_; }
 
 rclcpp::Node::SharedPtr MujocoSystemInterface::get_node() const
-{
-  return mujoco_node_;
-}
+{ return mujoco_node_; }
 
 void MujocoSystemInterface::load_mujoco_plugins()
 {

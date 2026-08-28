@@ -27,8 +27,10 @@
 #include <Eigen/Geometry>
 #include <hardware_interface/types/hardware_interface_type_values.hpp>
 #include "control_toolbox/pid_ros.hpp"
+#include "mujoco_ros2_control/actuator_parameters.hpp"
 
 #include <limits>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -131,17 +133,11 @@ struct MuJoCoActuatorData
   // Gains as authored in the MJCF, captured at registration for POSITION
   // actuators so that native-impedance mode can overwrite them and restore
   // them when the joint is released.
-  double authored_gainprm0{ std::numeric_limits<double>::quiet_NaN() };
-  double authored_biasprm0{ std::numeric_limits<double>::quiet_NaN() };
-  double authored_biasprm1{ std::numeric_limits<double>::quiet_NaN() };
-  double authored_biasprm2{ std::numeric_limits<double>::quiet_NaN() };
+  std::optional<ActuatorAffineParameters> authored_parameters;
 
-  // Last gains pushed into mjModel by native-impedance mode. Writing the model
-  // needs the sim mutex, so it is done only when a commanded gain actually
-  // changes rather than on every control cycle.
-  double applied_kp{ std::numeric_limits<double>::quiet_NaN() };
-  double applied_kd{ std::numeric_limits<double>::quiet_NaN() };
-  double applied_bias{ std::numeric_limits<double>::quiet_NaN() };
+  // Last native-impedance parameters requested from the physics thread. Keeping
+  // this as one value makes the coefficient set an indivisible unit here too.
+  std::optional<ActuatorAffineParameters> last_requested_parameters;
 
   void copy_state_to_transmission()
   {
