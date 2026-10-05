@@ -193,7 +193,9 @@ public:
    * @brief Accessor for the mujoco model.
    */
   mjModel* model()
-  { return mj_model_; }
+  {
+    return mj_model_;
+  }
 
   /**
    * @brief Accessor for the raw mujoco simulation data.
@@ -203,7 +205,9 @@ public:
    * `control_data` or other containers populated by `copy_mj_data`.
    */
   mjData* data()
-  { return mj_data_; }
+  {
+    return mj_data_;
+  }
 
   /**
    * @brief Reset simulation state (qpos/qvel/ctrl/sensors/forces) to the captured initial state.
@@ -337,7 +341,9 @@ public:
    * Equivalent to the step counter that is shown in the simulate UI.
    */
   uint64_t step_count() const
-  { return step_count_.load(); }
+  {
+    return step_count_.load();
+  }
 
 private:
   /**
@@ -469,7 +475,9 @@ private:
                                 std::shared_ptr<mujoco_ros2_control_msgs::srv::SetFreeJointState::Response> response);
 
   rclcpp::Logger get_logger() const
-  { return logger_; }
+  {
+    return logger_;
+  }
 
   // Logger
   rclcpp::Logger logger_ = rclcpp::get_logger("MujocoSimulation");

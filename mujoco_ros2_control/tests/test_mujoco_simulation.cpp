@@ -144,7 +144,9 @@ protected:
 
   // initialize the simulation in headless mode with default settings.
   bool initialize_sim()
-  { return sim_->initialize(node_, kTestModelPath, "/mujoco_robot_description", -1.0, true); }
+  {
+    return sim_->initialize(node_, kTestModelPath, "/mujoco_robot_description", -1.0, true);
+  }
 
   // Helper function to poll a condition until it returns true or the timeout expires.
   bool wait_until(std::function<bool()> condition, std::chrono::milliseconds timeout = std::chrono::seconds(5),

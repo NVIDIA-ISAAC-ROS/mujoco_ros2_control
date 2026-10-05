@@ -84,15 +84,25 @@ public:
   ~HeadlessAdapter() override = default;
 
   std::pair<double, double> GetCursorPosition() const override
-  { return { 0.0, 0.0 }; }
+  {
+    return { 0.0, 0.0 };
+  }
   double GetDisplayPixelsPerInch() const override
-  { return 96.0; }
+  {
+    return 96.0;
+  }
   std::pair<int, int> GetFramebufferSize() const override
-  { return { 800, 600 }; }
+  {
+    return { 800, 600 };
+  }
   std::pair<int, int> GetWindowSize() const override
-  { return { 800, 600 }; }
+  {
+    return { 800, 600 };
+  }
   bool IsGPUAccelerated() const override
-  { return false; }
+  {
+    return false;
+  }
   void PollEvents() override
   {
   }
@@ -106,7 +116,9 @@ public:
   {
   }
   bool ShouldCloseWindow() const override
-  { return false; }
+  {
+    return false;
+  }
   void SwapBuffers() override
   {
   }
@@ -115,31 +127,53 @@ public:
   }
 
   bool IsLeftMouseButtonPressed() const override
-  { return false; }
+  {
+    return false;
+  }
   bool IsMiddleMouseButtonPressed() const override
-  { return false; }
+  {
+    return false;
+  }
   bool IsRightMouseButtonPressed() const override
-  { return false; }
+  {
+    return false;
+  }
 
   bool IsAltKeyPressed() const override
-  { return false; }
+  {
+    return false;
+  }
   bool IsCtrlKeyPressed() const override
-  { return false; }
+  {
+    return false;
+  }
   bool IsShiftKeyPressed() const override
-  { return false; }
+  {
+    return false;
+  }
 
   bool IsMouseButtonDownEvent(int /*act*/) const override
-  { return false; }
+  {
+    return false;
+  }
   bool IsKeyDownEvent(int /*act*/) const override
-  { return false; }
+  {
+    return false;
+  }
 
   int TranslateKeyCode(int /*key*/) const override
-  { return 0; }
+  {
+    return 0;
+  }
   mjtButton TranslateMouseButton(int /*button*/) const override
-  { return mjBUTTON_NONE; }
+  {
+    return mjBUTTON_NONE;
+  }
 
   bool RefreshMjrContext(const mjModel* /*m*/, int /*fontscale*/) override
-  { return false; }
+  {
+    return false;
+  }
 };
 
 /**
@@ -758,7 +792,9 @@ void MujocoSimulation::capture_initial_state()
 }
 
 void MujocoSimulation::set_reset_callback(ResetCallback callback)
-{ reset_callback_ = std::move(callback); }
+{
+  reset_callback_ = std::move(callback);
+}
 
 void MujocoSimulation::set_key_callback(KeyCallback callback)
 {
@@ -876,7 +912,9 @@ void MujocoSimulation::shutdown()
 }
 
 void MujocoSimulation::reset_world_state(bool fill_initial_state)
-{ reset_world_state(fill_initial_state, mujoco_ros2_control_msgs::msg::SimulationState{}); }
+{
+  reset_world_state(fill_initial_state, mujoco_ros2_control_msgs::msg::SimulationState{});
+}
 
 void MujocoSimulation::reset_world_state(bool fill_initial_state,
                                          const mujoco_ros2_control_msgs::msg::SimulationState& state_overrides)
