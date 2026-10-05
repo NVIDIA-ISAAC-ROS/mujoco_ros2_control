@@ -231,6 +231,92 @@ TEST_F(MujocoSimulationTest, ControlUpdateTests)
   mj_deleteData(control);
 }
 
+TEST_F(MujocoSimulationTest, ResetDiscardsStagedActuatorParameterUpdates)
+{
+  ASSERT_TRUE(initialize_sim());
+  sim_->configure_lockstep(true);
+
+  mjData* control = nullptr;
+  sim_->copy_physics_data(control);
+  ASSERT_NE(control, nullptr);
+  control->ctrl[0] = 0.75;
+  sim_->apply_control_data(control, { { 0, { 20.0, 1.5, -20.0, -4.0 } } });
+
+  {
+    const std::lock_guard<std::recursive_mutex> lock(sim_->mutex());
+    sim_->reset_world_state(true);
+  }
+  EXPECT_DOUBLE_EQ(sim_->model()->actuator_gainprm[0], 10.0);
+  EXPECT_DOUBLE_EQ(sim_->model()->actuator_biasprm[1], -10.0);
+
+  sim_->apply_control_data(control);
+  sim_->start_physics_thread();
+  ASSERT_EQ(sim_->request_simulation_steps(1, std::chrono::seconds(5)),
+            mujoco_ros2_control::MujocoSimulation::SimulationStepResult::Completed);
+
+  // Reset is a lifecycle boundary: a coefficient update staged before it must
+  // not leak into the first step of the reset world.
+  EXPECT_DOUBLE_EQ(sim_->model()->actuator_gainprm[0], 10.0);
+  EXPECT_DOUBLE_EQ(sim_->model()->actuator_biasprm[1], -10.0);
+  EXPECT_DOUBLE_EQ(sim_->model()->actuator_biasprm[2], 0.0);
+
+  mj_deleteData(control);
+}
+
+TEST_F(MujocoSimulationTest, StagesActuatorParametersWithMatchingControl)
+{
+  ASSERT_TRUE(initialize_sim());
+  sim_->configure_lockstep(true);
+
+  mjData* control = nullptr;
+  sim_->copy_physics_data(control);
+  ASSERT_NE(control, nullptr);
+  control->ctrl[0] = 0.75;
+  sim_->apply_control_data(control, { { 0, { 20.0, 1.5, -20.0, -4.0 } } });
+
+  // A second write before the step replaces the complete coefficient/control pair.
+  control->ctrl[0] = 0.25;
+  sim_->apply_control_data(control, { { 0, { 30.0, 2.5, -30.0, -6.0 } } });
+
+  {
+    const std::lock_guard<std::recursive_mutex> lock(sim_->mutex());
+    EXPECT_DOUBLE_EQ(sim_->data()->ctrl[0], 0.0);
+    EXPECT_DOUBLE_EQ(sim_->model()->actuator_gainprm[0], 10.0);
+    EXPECT_DOUBLE_EQ(sim_->model()->actuator_biasprm[1], -10.0);
+  }
+
+  sim_->start_physics_thread();
+  ASSERT_EQ(sim_->request_simulation_steps(1, std::chrono::seconds(5)),
+            mujoco_ros2_control::MujocoSimulation::SimulationStepResult::Completed);
+
+  {
+    const std::lock_guard<std::recursive_mutex> lock(sim_->mutex());
+    EXPECT_DOUBLE_EQ(sim_->data()->ctrl[0], 0.25);
+    EXPECT_DOUBLE_EQ(sim_->model()->actuator_gainprm[0], 30.0);
+    EXPECT_DOUBLE_EQ(sim_->model()->actuator_biasprm[0], 2.5);
+    EXPECT_DOUBLE_EQ(sim_->model()->actuator_biasprm[1], -30.0);
+    EXPECT_DOUBLE_EQ(sim_->model()->actuator_biasprm[2], -6.0);
+  }
+
+  mj_deleteData(control);
+}
+
+TEST_F(MujocoSimulationTest, RejectsInvalidActuatorParameterUpdateIds)
+{
+  ASSERT_TRUE(initialize_sim());
+
+  mjData* control = nullptr;
+  sim_->copy_physics_data(control);
+  ASSERT_NE(control, nullptr);
+
+  EXPECT_THROW(sim_->apply_control_data(control, { { -1, {} } }), std::out_of_range);
+  EXPECT_THROW(sim_->apply_control_data(control, { { sim_->model()->nu, {} } }), std::out_of_range);
+  EXPECT_THROW(sim_->set_actuator_parameters({ -1, {} }), std::out_of_range);
+  EXPECT_THROW(sim_->set_actuator_parameters({ sim_->model()->nu, {} }), std::out_of_range);
+
+  mj_deleteData(control);
+}
+
 TEST_F(MujocoSimulationTest, XfrcAppliedTests)
 {
   ASSERT_TRUE(initialize_sim());

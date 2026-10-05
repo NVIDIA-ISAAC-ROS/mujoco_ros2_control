@@ -27,7 +27,10 @@
 #include <Eigen/Geometry>
 #include <hardware_interface/types/hardware_interface_type_values.hpp>
 #include "control_toolbox/pid_ros.hpp"
+#include "mujoco_ros2_control/actuator_parameters.hpp"
 
+#include <limits>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -121,8 +124,20 @@ struct MuJoCoActuatorData
   bool is_velocity_control_enabled{ false };
   bool is_effort_control_enabled{ false };
   bool is_impedance_control_enabled{ false };  // Uses commanded kp/kd for PD control
+  // Impedance on a MuJoCo POSITION actuator is realised by the actuator itself
+  // rather than by summing a torque in write(): see MujocoSystemInterface::write.
+  bool uses_native_position_impedance{ false };
   bool has_pos_pid{ false };
   bool has_vel_pid{ false };
+
+  // Gains as authored in the MJCF, captured at registration for POSITION
+  // actuators so that native-impedance mode can overwrite them and restore
+  // them when the joint is released.
+  std::optional<ActuatorAffineParameters> authored_parameters;
+
+  // Last native-impedance parameters staged for the physics thread, used to skip
+  // redundant updates.
+  std::optional<ActuatorAffineParameters> last_requested_parameters;
 
   void copy_state_to_transmission()
   {

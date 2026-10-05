@@ -22,6 +22,7 @@
 #include "mujoco_ros2_control/sim_display_text.hpp"
 
 #include <unistd.h>
+#include <algorithm>
 #include <cerrno>
 #include <chrono>
 #include <cmath>
@@ -957,6 +958,7 @@ void MujocoSimulation::reset_world_state(bool fill_initial_state,
     std::fill(qfrc_applied_staged_.begin(), qfrc_applied_staged_.end(), 0.0);
     std::fill(xfrc_plugin_desired_.begin(), xfrc_plugin_desired_.end(), 0.0);
     std::fill(qvel_override_staged_.begin(), qvel_override_staged_.end(), std::numeric_limits<mjtNum>::quiet_NaN());
+    actuator_parameter_updates_staged_.clear();
   }
   std::fill(xfrc_viewer_capture_.begin(), xfrc_viewer_capture_.end(), 0.0);
   std::fill(xfrc_last_written_.begin(), xfrc_last_written_.end(), 0.0);
@@ -975,18 +977,16 @@ void MujocoSimulation::reset_world_state(bool fill_initial_state,
     apply_free_joint_states(state_overrides.free_joints);
   }
 
-  // Run forward dynamics to update derived quantities
-  mj_forward(mj_model_, mj_data_);
-
-  // Make the reset state visible to snapshot readers before HW-side bookkeeping runs
-  refresh_data_snapshot();
-  publish_control_state();
-
-  // Delegate HW-side bookkeeping (PID resets, command/state interface sync, etc.)
+  // Restore hardware-owned model state (including authored actuator parameters) before
+  // deriving forces and sensors from the reset state.
   if (reset_callback_)
   {
     reset_callback_(fill_initial_state);
   }
+
+  mj_forward(mj_model_, mj_data_);
+  refresh_data_snapshot();
+  publish_control_state();
 }
 
 void MujocoSimulation::reset_world_callback(
@@ -1430,14 +1430,67 @@ mjData* MujocoSimulation::acquire_data_snapshot()
   return snapshot_read_;
 }
 
-void MujocoSimulation::apply_control_data(mjData* control_data)
+namespace
 {
+void validate_actuator_id(const mjModel* model, int actuator_id)
+{
+  if (actuator_id < 0 || actuator_id >= model->nu)
+  {
+    throw std::out_of_range("Actuator parameter update ID is outside the MuJoCo model actuator range");
+  }
+}
+
+void apply_actuator_parameters(mjModel* model, const ActuatorParameterUpdate& update)
+{
+  const int gain_offset = update.actuator_id * mjNGAIN;
+  const int bias_offset = update.actuator_id * mjNBIAS;
+  model->actuator_gainprm[gain_offset] = update.parameters.gain;
+  model->actuator_biasprm[bias_offset] = update.parameters.bias_constant;
+  model->actuator_biasprm[bias_offset + 1] = update.parameters.bias_position;
+  model->actuator_biasprm[bias_offset + 2] = update.parameters.bias_velocity;
+}
+}  // namespace
+
+void MujocoSimulation::apply_control_data(mjData* control_data,
+                                          const std::vector<ActuatorParameterUpdate>& actuator_parameter_updates)
+{
+  for (const auto& update : actuator_parameter_updates)
+  {
+    validate_actuator_id(mj_model_, update.actuator_id);
+  }
+
   const std::lock_guard<std::mutex> lock(control_staging_mutex_);
   mju_copy(ctrl_staged_.data(), control_data->ctrl, static_cast<int>(mj_model_->nu));
   mju_copy(qfrc_applied_staged_.data(), control_data->qfrc_applied, static_cast<int>(mj_model_->nv));
   mju_copy(xfrc_plugin_desired_.data(), control_data->xfrc_applied, 6 * static_cast<int>(mj_model_->nbody));
   mju_copy(qvel_override_staged_.data(), control_data->qvel, static_cast<int>(mj_model_->nv));
+  for (const auto& update : actuator_parameter_updates)
+  {
+    auto pending =
+        std::find_if(actuator_parameter_updates_staged_.begin(), actuator_parameter_updates_staged_.end(),
+                     [&update](const auto& candidate) { return candidate.actuator_id == update.actuator_id; });
+    if (pending == actuator_parameter_updates_staged_.end())
+    {
+      actuator_parameter_updates_staged_.push_back(update);
+    }
+    else
+    {
+      *pending = update;
+    }
+  }
   control_inputs_staged_ = true;
+}
+
+void MujocoSimulation::set_actuator_parameters(const ActuatorParameterUpdate& update)
+{
+  validate_actuator_id(mj_model_, update.actuator_id);
+  const std::lock_guard<std::recursive_mutex> sim_lock(*sim_mutex_);
+  const std::lock_guard<std::mutex> staging_lock(control_staging_mutex_);
+  auto& staged = actuator_parameter_updates_staged_;
+  staged.erase(std::remove_if(staged.begin(), staged.end(),
+                              [&update](const auto& pending) { return pending.actuator_id == update.actuator_id; }),
+               staged.end());
+  apply_actuator_parameters(mj_model_, update);
 }
 
 void MujocoSimulation::refresh_data_snapshot()
@@ -1477,16 +1530,29 @@ void MujocoSimulation::copy_control_state(ControlState& destination)
 
 void MujocoSimulation::apply_staged_control_inputs()
 {
-  const std::lock_guard<std::mutex> lock(control_staging_mutex_);
-
-  // Only apply ctrl / qfrc_applied once the hw interface has staged control inputs,
-  // so that initial or reset values in mj_data_ are not overwritten with zeros.
-  if (control_inputs_staged_)
   {
-    mju_copy(mj_data_->ctrl, ctrl_staged_.data(), static_cast<int>(mj_model_->nu));
-    mju_copy(mj_data_->qfrc_applied, qfrc_applied_staged_.data(), static_cast<int>(mj_model_->nv));
+    const std::lock_guard<std::mutex> lock(control_staging_mutex_);
+
+    // Only apply ctrl / qfrc_applied once the hw interface has staged control inputs,
+    // so that initial or reset values in mj_data_ are not overwritten with zeros.
+    if (control_inputs_staged_)
+    {
+      for (const auto& update : actuator_parameter_updates_staged_)
+      {
+        apply_actuator_parameters(mj_model_, update);
+      }
+      actuator_parameter_updates_staged_.clear();
+      mju_copy(mj_data_->ctrl, ctrl_staged_.data(), static_cast<int>(mj_model_->nu));
+      mju_copy(mj_data_->qfrc_applied, qfrc_applied_staged_.data(), static_cast<int>(mj_model_->nv));
+    }
   }
 
+  compose_cartesian_forces();
+}
+
+void MujocoSimulation::compose_cartesian_forces()
+{
+  const std::lock_guard<std::mutex> lock(control_staging_mutex_);
   const int nbody6 = 6 * static_cast<int>(mj_model_->nbody);
   mju_copy(mj_data_->xfrc_applied, xfrc_viewer_capture_.data(), nbody6);
   mju_addTo(mj_data_->xfrc_applied, xfrc_plugin_desired_.data(), nbody6);
@@ -1711,7 +1777,6 @@ void MujocoSimulation::physics_loop()
           // save current state to history buffer
           if (stepped)
           {
-            apply_staged_control_inputs();
             sim_->AddToHistory();
             update_sim_display();
           }
@@ -1727,14 +1792,11 @@ void MujocoSimulation::physics_loop()
             pending_steps_.fetch_add(1);
           }
 
-          // Record so the next iteration can detect render thread changes, only necessary once
-          // when paused
-          apply_staged_control_inputs();
-
           // Execute one pending step per physics loop iteration so the clock publisher
           // (try_publish) has time to flush between steps, matching play mode behavior.
           if (pending_steps_.load() > 0)
           {
+            apply_staged_control_inputs();
             mj_step(mj_model_, mj_data_);
             publish_control_state();
             publish_clock();
@@ -1763,6 +1825,9 @@ void MujocoSimulation::physics_loop()
           }
           else
           {
+            // Keep viewer/plugin Cartesian forces visible to paused rendering without
+            // making new controls or actuator coefficients observable before a step.
+            compose_cartesian_forces();
             mj_forward(mj_model_, mj_data_);
             sim_->speed_changed = true;
             update_sim_display();

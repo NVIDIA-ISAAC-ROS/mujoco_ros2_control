@@ -28,6 +28,7 @@
 #include <hardware_interface/hardware_info.hpp>
 #include <mujoco_ros2_control/mujoco_system_interface.hpp>
 #include <mujoco_ros2_control/sim_display_text.hpp>
+#include <mujoco_ros2_control_msgs/srv/reset_world.hpp>
 #include <rclcpp/rclcpp.hpp>
 
 #define ROS_DISTRO_HUMBLE (HARDWARE_INTERFACE_VERSION_MAJOR < 3)
@@ -182,6 +183,31 @@ protected:
       make_interface(mujoco_ros2_control::HW_IF_KD),
     };
     info.joints.push_back(joint);
+    return info;
+  }
+
+  hardware_interface::HardwareInfo create_position_impedance_hardware_info()
+  {
+    auto info = create_impedance_hardware_info();
+    std::ofstream file(test_model_path_);
+    file << R"(<?xml version="1.0"?>
+<mujoco model="test_position_impedance_control">
+  <option timestep="0.002" gravity="0 0 0"/>
+  <worldbody>
+    <body name="link" pos="0 0 0">
+      <joint name="hinge" type="hinge" axis="0 1 0"/>
+      <geom type="capsule" size="0.02" fromto="0 0 0 0.3 0 0" mass="1"/>
+    </body>
+  </worldbody>
+  <actuator>
+    <position name="hinge" joint="hinge" kp="3.0" kv="0.7" ctrlrange="-1 1" forcerange="-5 5"/>
+  </actuator>
+</mujoco>
+)";
+    file.close();
+
+    info.name = "test_mujoco_position_impedance";
+    info.hardware_parameters["lockstep"] = "true";
     return info;
   }
 
@@ -397,6 +423,126 @@ TEST_F(HeadlessInitTest, ImpedanceInterfacesDriveMotorControl)
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
   EXPECT_NEAR(observed_effort, expected_effort, 1e-9);
+}
+
+TEST_F(HeadlessInitTest, PositionImpedanceHonorsAuthoredRangesAndRestoresAuthoredGains)
+{
+  const auto info = create_position_impedance_hardware_info();
+#if ROS_DISTRO_HUMBLE
+  const auto init_result = interface_->on_init(info);
+#else
+  hardware_interface::HardwareComponentInterfaceParams params;
+  params.hardware_info = info;
+  const auto init_result = interface_->on_init(params);
+#endif
+  ASSERT_EQ(init_result, hardware_interface::CallbackReturn::SUCCESS);
+
+  auto command_interfaces = interface_->export_command_interfaces();
+  const auto set_command = [&command_interfaces](const std::string& name, double value) {
+    auto it = std::find_if(command_interfaces.begin(), command_interfaces.end(),
+                           [&name](const auto& interface) { return interface.get_name() == name; });
+    ASSERT_NE(it, command_interfaces.end()) << "Missing command interface: " << name;
+#if ROS_DISTRO_HUMBLE
+    it->set_value(value);
+#else
+    ASSERT_TRUE(it->set_value(value));
+#endif
+  };
+
+  set_command("hinge/position", 0.5);
+  set_command("hinge/velocity", 0.25);
+  set_command("hinge/effort", 0.1);
+  set_command("hinge/kp", 20.0);
+  set_command("hinge/kd", 4.0);
+  ASSERT_EQ(interface_->perform_command_mode_switch(
+                { "hinge/position", "hinge/velocity", "hinge/effort", "hinge/kp", "hinge/kd" }, {}),
+            hardware_interface::return_type::OK);
+  ASSERT_EQ(interface_->write(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.01)),
+            hardware_interface::return_type::OK);
+
+  mjModel* model = nullptr;
+  interface_->get_model(model);
+  ASSERT_NE(model, nullptr);
+  const int actuator_id = mj_name2id(model, mjOBJ_ACTUATOR, "hinge");
+  ASSERT_NE(actuator_id, -1);
+  EXPECT_DOUBLE_EQ(model->actuator_gainprm[actuator_id * mjNGAIN], 20.0);
+  EXPECT_DOUBLE_EQ(model->actuator_biasprm[actuator_id * mjNBIAS + 2], -4.0);
+
+  // POSITION actuators retain their authored ctrlrange and forcerange. The
+  // target first saturates to 1.0, then the resulting effort saturates to 5.0.
+  set_command("hinge/position", 2.0);
+  ASSERT_EQ(interface_->write(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.01)),
+            hardware_interface::return_type::OK);
+  mjData* data = nullptr;
+  interface_->get_data(data);
+  ASSERT_NE(data, nullptr);
+  mj_forward(model, data);
+  EXPECT_NEAR(data->qfrc_actuator[0], 5.0, 1e-9);
+  mj_deleteData(data);
+  mj_deleteModel(model);
+
+  // An ordinary controller-mode stop restores the MJCF-authored coefficients.
+  ASSERT_EQ(interface_->perform_command_mode_switch({}, { "hinge/position", "hinge/velocity", "hinge/effort",
+                                                          "hinge/kp", "hinge/kd" }),
+            hardware_interface::return_type::OK);
+  model = nullptr;
+  interface_->get_model(model);
+  ASSERT_NE(model, nullptr);
+  EXPECT_DOUBLE_EQ(model->actuator_gainprm[actuator_id * mjNGAIN], 3.0);
+  EXPECT_DOUBLE_EQ(model->actuator_biasprm[actuator_id * mjNBIAS + 1], -3.0);
+  EXPECT_DOUBLE_EQ(model->actuator_biasprm[actuator_id * mjNBIAS + 2], -0.7);
+  mj_deleteModel(model);
+
+  // Re-enter impedance mode so reset exercises restoration independently.
+  ASSERT_EQ(interface_->perform_command_mode_switch(
+                { "hinge/position", "hinge/velocity", "hinge/effort", "hinge/kp", "hinge/kd" }, {}),
+            hardware_interface::return_type::OK);
+  ASSERT_EQ(interface_->write(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.01)),
+            hardware_interface::return_type::OK);
+
+  auto reset_node = std::make_shared<rclcpp::Node>("position_impedance_reset_client");
+  auto reset_client =
+      reset_node->create_client<mujoco_ros2_control_msgs::srv::ResetWorld>("/mujoco_ros2_control_node/reset_world");
+  ASSERT_TRUE(reset_client->wait_for_service(std::chrono::seconds(5)));
+  auto reset_request = std::make_shared<mujoco_ros2_control_msgs::srv::ResetWorld::Request>();
+  reset_request->state_overrides.joint_states.name = { "hinge" };
+  reset_request->state_overrides.joint_states.position = { 0.5 };
+  auto reset_future = reset_client->async_send_request(reset_request);
+  ASSERT_EQ(rclcpp::spin_until_future_complete(reset_node, reset_future, std::chrono::seconds(5)),
+            rclcpp::FutureReturnCode::SUCCESS);
+  ASSERT_TRUE(reset_future.get()->success);
+
+  model = nullptr;
+  interface_->get_model(model);
+  ASSERT_NE(model, nullptr);
+  EXPECT_DOUBLE_EQ(model->actuator_gainprm[actuator_id * mjNGAIN], 3.0);
+  EXPECT_DOUBLE_EQ(model->actuator_biasprm[actuator_id * mjNBIAS + 1], -3.0);
+  EXPECT_DOUBLE_EQ(model->actuator_biasprm[actuator_id * mjNBIAS + 2], -0.7);
+  mj_deleteModel(model);
+
+  data = nullptr;
+  interface_->get_data(data);
+  ASSERT_NE(data, nullptr);
+  EXPECT_DOUBLE_EQ(data->qpos[0], 0.5);
+  EXPECT_DOUBLE_EQ(data->qfrc_actuator[0], -1.5);
+  mj_deleteData(data);
+
+  ASSERT_EQ(interface_->perform_command_mode_switch(
+                { "hinge/position", "hinge/velocity", "hinge/effort", "hinge/kp", "hinge/kd" }, {}),
+            hardware_interface::return_type::OK);
+  ASSERT_EQ(interface_->write(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.01)),
+            hardware_interface::return_type::OK);
+
+  rclcpp_lifecycle::State inactive_state(0, "inactive");
+  ASSERT_EQ(interface_->on_deactivate(inactive_state), hardware_interface::CallbackReturn::SUCCESS);
+
+  model = nullptr;
+  interface_->get_model(model);
+  ASSERT_NE(model, nullptr);
+  EXPECT_DOUBLE_EQ(model->actuator_gainprm[actuator_id * mjNGAIN], 3.0);
+  EXPECT_DOUBLE_EQ(model->actuator_biasprm[actuator_id * mjNBIAS + 1], -3.0);
+  EXPECT_DOUBLE_EQ(model->actuator_biasprm[actuator_id * mjNBIAS + 2], -0.7);
+  mj_deleteModel(model);
 }
 
 TEST_F(HeadlessInitTest, LockstepWriteAdvancesConfiguredStepCount)

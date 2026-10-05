@@ -49,6 +49,8 @@
 #include <mujoco_ros2_control_plugins/mujoco_ros2_control_plugins_base.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
 
+#include "mujoco_ros2_control/actuator_parameters.hpp"
+
 namespace mujoco_ros2_control
 {
 
@@ -307,10 +309,22 @@ public:
    * from the simulate app. `control_data->qvel` is copied into `qvel_override_staged_`;
    * entries that are not NaN are plugin-requested velocity overrides (see
    * `MuJoCoROS2ControlPluginBase::update()`'s doc comment for the NaN convention this
-   * relies on) and are applied as direct `qvel` writes before the next `mj_step`. This does
-   * not lock the sim mutex and never waits on stepping.
+   * relies on) and are applied as direct `qvel` writes before the next `mj_step`.
+   * Complete affine actuator-parameter sets are staged through the optional second argument
+   * and applied under the same lock as `ctrl`, so a step cannot observe a new setpoint with
+   * old coefficients (or vice versa). This does not lock the sim mutex and never waits on
+   * stepping.
    */
-  void apply_control_data(mjData* control_data);
+  void apply_control_data(mjData* control_data,
+                          const std::vector<ActuatorParameterUpdate>& actuator_parameter_updates = {});
+
+  /**
+   * @brief Apply a cold-path actuator parameter change synchronously.
+   *
+   * Used for mode/lifecycle transitions that must be observable before the
+   * call returns. Any pending staged update for the actuator is discarded.
+   */
+  void set_actuator_parameters(const ActuatorParameterUpdate& update);
 
   /**
    * @brief Accessor for the mutex which locks access to the data and model.
@@ -338,6 +352,9 @@ private:
    * This should be called before stepping the simulation. Assumes the sim mutex is held.
    */
   void apply_staged_control_inputs();
+
+  /** Compose viewer and plugin Cartesian forces without applying other staged inputs. */
+  void compose_cartesian_forces();
 
   /**
    * @brief Publishes the per-step control state from `mj_data_`.
@@ -508,6 +525,10 @@ private:
   // update()
   std::vector<mjtNum> qvel_override_staged_;
 
+  // Complete affine-parameter sets waiting to be applied with the staged ctrl
+  // immediately before the next physics step.
+  std::vector<ActuatorParameterUpdate> actuator_parameter_updates_staged_;
+
   // Guards only the snapshot pointer swap and snapshot_ready_ flag.
   // Lock order: sim_mutex_ (if needed) is always taken before this one.
   std::mutex data_exchange_mutex_;
@@ -518,9 +539,9 @@ private:
   std::atomic<bool> snapshot_refresh_requested_{ true };
 
   // Guards the staged control inputs (ctrl_staged_, qfrc_applied_staged_, xfrc_plugin_desired_,
-  // control_inputs_staged_, qvel_override_staged_). Separate from data_exchange_mutex_ so
-  // that staging commands in write() and applying them before each physics step never queue
-  // behind a full mjData copy.
+  // control_inputs_staged_, qvel_override_staged_, actuator_parameter_updates_staged_).
+  // Separate from data_exchange_mutex_ so that staging commands in write() and applying them
+  // before each physics step never queue behind a full mjData copy.
   // Critical sections are all small buffer copies.
   // Lock order: sim_mutex_ (if needed) before this one; never held with data_exchange_mutex_.
   std::mutex control_staging_mutex_;
