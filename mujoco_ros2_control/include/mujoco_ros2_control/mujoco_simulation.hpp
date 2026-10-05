@@ -87,17 +87,20 @@ namespace mujoco_ros2_control
  *
  * `apply_control_data(...)` will copy control inputs from the provided mjData into staging
  * buffers that the physics loop applies to `mj_data_` immediately before each step.
- * Specifically, it stages `ctrl`, `qfrc_applied`, and `xfrc_applied`. Cartesian forces from
- * `xfrc_applied` compete with inputs from Simulate's drag function, so they are resolved
- * separately. This only takes the control staging mutex and never blocks on physics stepping.
- * It also stages `qvel`: the system interface NaN-fills `qvel` before every plugin's
- * `update()` runs, so any DOF a plugin leaves untouched is NaN here and any DOF it writes a
- * finite value into is a requested hard velocity override (see
- * `MuJoCoROS2ControlPluginBase::update()`'s doc comment). Non-NaN entries are applied as a
- * direct `qvel` write, bypassing the normal dynamics for that DOF.
+ * Specifically, it stages `ctrl` and `qfrc_applied`. Both of these values should come from
+ * the interfaces consuming this class. This  This only takes the control staging mutex
+ * and never blocks on physics stepping.
  *
  * `overwrite_physics_data(...)` will completely replace the data for the sim. Should be used
  * with extreme caution.
+ *
+ * `set_pre_step_callback(...)` registers a callback which will be triggered in the Physics
+ * Loop. It will be called immediately before `mj_step()`, providing direct access to
+ * `mj_data_` immediately before progressing the simulation. This gives consumers direct
+ * access to access and modify the data immediately before integration. Users should be
+ * extremely careful with this callback, as it exposes "god like" powers to the simulation
+ * environment and can break, slow down, or otherwise damage the simulation. This should also
+ * be used with caution.
  *
  * Thread safety is still somewhat messy, as callers are provided with a simulation mutex that
  * locks the model and data while the actual mujoco engine moves the sim forward. Callers
@@ -129,6 +132,15 @@ public:
   using ResetCallback = std::function<void(bool fill_initial_state)>;
   using KeyCallback = std::function<bool(int key, int scancode, int action, int mods)>;
   using VisualizationCallback = std::function<void(const mjModel* model, const mjData* data, mjvScene* scene)>;
+
+  /**
+   * @brief Callback function type the `set_pre_step_callback` hook.
+   *
+   * Called before `mjStep` in the physics loop, use with care.
+   *
+   * @param data The data from the physics simulation, under thread lock.
+   */
+  using PreStepCallback = std::function<void(mjData* data)>;
 
   /**
    * @brief Construct a new Mujoco Simulation object. This is a no-op until initialization.
@@ -178,6 +190,14 @@ public:
 
   /** Queue physics steps and wait for completion. */
   SimulationStepResult request_simulation_steps(uint32_t steps, std::chrono::milliseconds timeout);
+
+  /**
+   * @brief Register the callback run before every `mj_step()`.
+   *
+   * See the class documentation for more information. Any function called here will hold
+   * the simulation mutex and block the physics loop. Use with care.
+   */
+  void set_pre_step_callback(PreStepCallback callback);
 
   /**
    * @brief Start the physics thread. Must be called after load_model().
@@ -314,6 +334,8 @@ public:
    * and applied under the same lock as `ctrl`, so a step cannot observe a new setpoint with
    * old coefficients (or vice versa). This does not lock the sim mutex and never waits on
    * stepping.
+   * Anything else that requires direct access to simulation data can use
+   * `set_pre_step_callback`.
    */
   void apply_control_data(mjData* control_data,
                           const std::vector<ActuatorParameterUpdate>& actuator_parameter_updates = {});
@@ -355,6 +377,9 @@ private:
 
   /** Compose viewer and plugin Cartesian forces without applying other staged inputs. */
   void compose_cartesian_forces();
+
+  /** Run the pre-step callback and record the resulting xfrc_applied for viewer-drag detection. */
+  void run_pre_step_callback();
 
   /**
    * @brief Publishes the per-step control state from `mj_data_`.
@@ -571,6 +596,8 @@ private:
   // Threads for rendering physics and the UI simulation
   std::thread physics_thread_;
   std::thread ui_thread_;
+  // Distinguishes a programmatic RenderLoop wakeup from the user closing its window.
+  std::atomic<bool> explicit_shutdown_requested_{ false };
 
   // Primary clock publisher for the world
   std::shared_ptr<rclcpp::Publisher<rosgraph_msgs::msg::Clock>> clock_publisher_;
@@ -622,6 +649,9 @@ private:
   VisualizationCallback visualization_callback_;
   mjvScene plugin_visualization_scene_{};
   bool plugin_visualization_scene_initialized_{ false };
+
+  // Callback run immediately before every mj_step(), defaults to nothing.
+  PreStepCallback pre_step_callback_{ [](mjData* /*data*/) {} };
 };
 
 }  // namespace mujoco_ros2_control

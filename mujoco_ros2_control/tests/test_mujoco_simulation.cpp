@@ -20,7 +20,6 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
-
 #include <chrono>
 #include <cmath>
 #include <filesystem>
@@ -35,11 +34,14 @@
 #include <mujoco_ros2_control_msgs/srv/reset_world.hpp>
 #include <mujoco_ros2_control_msgs/srv/set_free_joint_state.hpp>
 
+#include "render_loop_exit.hpp"
+
 namespace
 {
 
 // Basic model for executing unit tests: a hinge joint with an actuator, plus two free-floating
-// bodies ("free_object", "free_object_2") for exercising the free-joint state service.
+// bodies ("free_object", "free_object_2") for exercising the free-joint state service, plus an
+// inactive weld equality ("test_weld") for exercising the eq_active restore on world reset.
 //    nu=1, nq=15 (1 hinge + 7 + 7 free joint), nv=13 (1 hinge + 6 + 6 free joint), nbody=4
 //    (world + pendulum + free_object + free_object_2)
 constexpr const char* kTestModel = R"(<?xml version="1.0"?>
@@ -65,6 +67,10 @@ constexpr const char* kTestModel = R"(<?xml version="1.0"?>
     <position name="hinge_pos" joint="hinge" kp="10"/>
   </actuator>
 
+  <equality>
+    <weld name="test_weld" body1="pendulum" body2="free_object" active="false"/>
+  </equality>
+
   <keyframe>
     <key name="home" qpos="0.5 1 0 1 1 0 0 0 2 0 1 1 0 0 0"/>
   </keyframe>
@@ -82,6 +88,35 @@ void write_test_model()
 
 constexpr double TEST_TOLERANCE = 1e-9;
 }  // namespace
+
+TEST(RenderLoopExitHandler, RequestsSimulationExitAndShutsOwningContext)
+{
+  auto context = std::make_shared<rclcpp::Context>();
+  context->init(0, nullptr);
+  std::atomic<int> exit_request{ 1 };
+  std::atomic<bool> explicit_shutdown_requested{ false };
+
+  ASSERT_TRUE(rclcpp::ok(context));
+  EXPECT_TRUE(mujoco_ros2_control::detail::handle_render_loop_exit(exit_request, explicit_shutdown_requested, context));
+
+  EXPECT_EQ(exit_request.load(), 1);
+  EXPECT_FALSE(rclcpp::ok(context));
+}
+
+TEST(RenderLoopExitHandler, PreservesContextAfterExplicitShutdown)
+{
+  auto context = std::make_shared<rclcpp::Context>();
+  context->init(0, nullptr);
+  std::atomic<int> exit_request{ 1 };
+  std::atomic<bool> explicit_shutdown_requested{ true };
+
+  ASSERT_TRUE(rclcpp::ok(context));
+  EXPECT_FALSE(mujoco_ros2_control::detail::handle_render_loop_exit(exit_request, explicit_shutdown_requested, context));
+
+  EXPECT_EQ(exit_request.load(), 1);
+  EXPECT_TRUE(rclcpp::ok(context));
+  context->shutdown("test cleanup");
+}
 
 class MujocoSimulationTest : public ::testing::Test
 {
@@ -317,32 +352,27 @@ TEST_F(MujocoSimulationTest, RejectsInvalidActuatorParameterUpdateIds)
   mj_deleteData(control);
 }
 
-TEST_F(MujocoSimulationTest, XfrcAppliedTests)
+TEST_F(MujocoSimulationTest, PreStepCallbackAppliesXfrcApplied)
 {
   ASSERT_TRUE(initialize_sim());
 
-  // Simulate the read/write cycle in the ros2_control loop, making sure data
-  // is updated where expected
-  mjData* control = nullptr;
-  sim_->copy_physics_data(control);
-  ASSERT_NE(control, nullptr);
-
-  // Zero xfrc_applied (like for plugins), and apply a force
+  // xfrc_applied is not staged through apply_control_data, instead we register a pre-step callback that
+  // writes directly into the live mjData immediately before every mj_step.
   const size_t body_id = 1;
-  mju_zero(control->xfrc_applied, 6 * sim_->model()->nbody);
-  control->xfrc_applied[body_id * 6 + 0] = 1.0;
-  control->xfrc_applied[body_id * 6 + 1] = 2.0;
-  control->xfrc_applied[body_id * 6 + 2] = 3.0;
+  sim_->set_pre_step_callback([body_id](mjData* data) {
+    data->xfrc_applied[body_id * 6 + 0] = 1.0;
+    data->xfrc_applied[body_id * 6 + 1] = 2.0;
+    data->xfrc_applied[body_id * 6 + 2] = 3.0;
+  });
 
-  sim_->apply_control_data(control);
-
-  // xfrc_applied should NOT be in mj_data_ directly, it goes through the triple
-  // plugin buffer and gets composed in the physics loop
+  // The callback has not run yet as it is only invoked from the physics loop.
   EXPECT_DOUBLE_EQ(sim_->data()->xfrc_applied[body_id * 6 + 0], 0.0);
-  EXPECT_DOUBLE_EQ(sim_->data()->xfrc_applied[body_id * 6 + 1], 0.0);
-  EXPECT_DOUBLE_EQ(sim_->data()->xfrc_applied[body_id * 6 + 2], 0.0);
 
-  mj_deleteData(control);
+  sim_->start_physics_thread();
+  EXPECT_TRUE(wait_until([this, body_id]() { return sim_->data()->xfrc_applied[body_id * 6 + 0] == 1.0; }))
+      << "pre_step callback's xfrc_applied write was not applied by the physics loop";
+  EXPECT_DOUBLE_EQ(sim_->data()->xfrc_applied[body_id * 6 + 1], 2.0);
+  EXPECT_DOUBLE_EQ(sim_->data()->xfrc_applied[body_id * 6 + 2], 3.0);
 }
 
 TEST_F(MujocoSimulationTest, PauseStepUnpause)
@@ -510,6 +540,26 @@ TEST_F(MujocoSimulationTest, ResetWorldTest)
   const double time_after_reset = sim_->data()->time;
   ASSERT_TRUE(wait_until([&]() { return sim_->data()->time > time_after_reset; }))
       << "Time should advance after unpausing post-reset";
+}
+
+TEST_F(MujocoSimulationTest, ResetWorldRestoresEqualityConstraintActivation)
+{
+  ASSERT_TRUE(initialize_sim());
+
+  const int eq_id = mj_name2id(sim_->model(), mjOBJ_EQUALITY, "test_weld");
+  ASSERT_NE(eq_id, -1);
+  ASSERT_EQ(sim_->model()->eq_active0[eq_id], 0) << "test_weld must be authored inactive";
+  ASSERT_EQ(sim_->data()->eq_active[eq_id], 0);
+
+  sim_->capture_initial_state();
+
+  // Simulate a plugin activating the constraint at runtime (e.g. a vacuum gripper engaging
+  // a weld); a world reset must restore the activation to the MJCF-authored default.
+  sim_->data()->eq_active[eq_id] = 1;
+  sim_->reset_world_state(true);
+
+  EXPECT_EQ(sim_->data()->eq_active[eq_id], 0)
+      << "eq_active should be restored to its MJCF default (eq_active0) on world reset";
 }
 
 TEST_F(MujocoSimulationTest, ResetWorldJointStateOverrides)
