@@ -20,6 +20,7 @@
 #include "mujoco_ros2_control/mujoco_simulation.hpp"
 #include "array_safety.h"
 #include "mujoco_ros2_control/sim_display_text.hpp"
+#include "render_loop_exit.hpp"
 
 #include <unistd.h>
 #include <algorithm>
@@ -34,7 +35,6 @@
 #include <fstream>
 #include <future>
 #include <iostream>
-#include <limits>
 #include <memory>
 #include <new>
 #include <stdexcept>
@@ -550,6 +550,7 @@ MujocoSimulation::~MujocoSimulation()
 bool MujocoSimulation::initialize(rclcpp::Node::SharedPtr node, const std::string& model_path,
                                   const std::string& mujoco_model_topic, double sim_speed_factor, bool headless)
 {
+  explicit_shutdown_requested_.store(false);
   node_ = node;
   model_path_ = model_path;
   mujoco_model_topic_ = mujoco_model_topic;
@@ -646,6 +647,12 @@ bool MujocoSimulation::initialize(rclcpp::Node::SharedPtr node, const std::strin
       // Blocks until terminated
       RCLCPP_INFO(get_logger(), "Starting the MuJoCo rendering thread...");
       sim_->RenderLoop();
+
+      if (detail::handle_render_loop_exit(sim_->exitrequest, explicit_shutdown_requested_,
+                                          node_->get_node_base_interface()->get_context()))
+      {
+        RCLCPP_INFO(get_logger(), "MuJoCo rendering window closed; shut down its ROS context.");
+      }
     });
   }
 
@@ -748,6 +755,19 @@ bool MujocoSimulation::initialize(rclcpp::Node::SharedPtr node, const std::strin
       refresh_data_snapshot();
       publish_control_state();
     }
+
+    // if there is an id set in the global settings, use that as the initial fixed camera
+    if (mj_model_->vis.global.cameraid >= 0 && mj_model_->vis.global.cameraid < mj_model_->ncam)
+    {
+      sim_->cam.fixedcamid = mj_model_->vis.global.cameraid;
+      sim_->cam.type = mjCAMERA_FIXED;
+    }
+
+    // otherwise use default free camera
+    else
+    {
+      mjv_defaultFreeCamera(mj_model_, &sim_->cam);
+    }
   }
   if (!headless_)
   {
@@ -848,6 +868,17 @@ MujocoSimulation::SimulationStepResult MujocoSimulation::request_simulation_step
   return SimulationStepResult::Completed;
 }
 
+void MujocoSimulation::set_pre_step_callback(PreStepCallback callback)
+{
+  // Don't drop in a nullptr if requested, just pass an empty function.
+  PreStepCallback next = callback ? std::move(callback) : PreStepCallback([](mjData* /*data*/) {});
+
+  // Plugins may be registered after the physics thread is already running, so the loop
+  // could otherwise be reading pre_step_callback_ while we assign to it.
+  const std::unique_lock<std::recursive_mutex> lock(*sim_mutex_);
+  pre_step_callback_ = std::move(next);
+}
+
 void MujocoSimulation::start_physics_thread()
 {
   // Disable the rangefinder flag at startup so that we don't get the yellow lines.
@@ -895,6 +926,8 @@ void MujocoSimulation::start_physics_thread()
 
 void MujocoSimulation::shutdown()
 {
+  explicit_shutdown_requested_.store(true);
+
   // If sim_ is created and running, clean shut it down
   if (sim_)
   {
@@ -949,9 +982,12 @@ void MujocoSimulation::reset_world_state(bool fill_initial_state,
   std::fill(mj_data_->qfrc_applied, mj_data_->qfrc_applied + mj_model_->nv, 0.0);
   std::fill(mj_data_->xfrc_applied, mj_data_->xfrc_applied + 6 * mj_model_->nbody, 0.0);
 
+  // Restore equality-constraint activations to their MJCF defaults
+  std::copy(mj_model_->eq_active0, mj_model_->eq_active0 + mj_model_->neq, mj_data_->eq_active);
+
   {
-    // Clear staged control inputs and plugin contributions so stale commands from before the
-    // reset are not re-applied on the next step.
+    // Clear staged control inputs so stale commands from before the reset are not re-applied
+    // on the next step.
     const std::lock_guard<std::mutex> staging_lock(control_staging_mutex_);
     control_inputs_staged_ = false;
     std::fill(ctrl_staged_.begin(), ctrl_staged_.end(), 0.0);
@@ -1550,6 +1586,16 @@ void MujocoSimulation::apply_staged_control_inputs()
   compose_cartesian_forces();
 }
 
+void MujocoSimulation::run_pre_step_callback()
+{
+  pre_step_callback_(mj_data_);
+
+  // Pre-step callbacks may write xfrc_applied directly. Record the result so the next outer
+  // iteration only treats render-thread changes as viewer drag forces.
+  const std::lock_guard<std::mutex> lock(control_staging_mutex_);
+  mju_copy(xfrc_last_written_.data(), mj_data_->xfrc_applied, 6 * static_cast<int>(mj_model_->nbody));
+}
+
 void MujocoSimulation::compose_cartesian_forces()
 {
   const std::lock_guard<std::mutex> lock(control_staging_mutex_);
@@ -1693,6 +1739,7 @@ void MujocoSimulation::physics_loop()
             sim_->speed_changed = false;
 
             apply_staged_control_inputs();
+            run_pre_step_callback();
             // run single step, let next iteration deal with timing
             mj_step(mj_model_, mj_data_);
 
@@ -1744,6 +1791,7 @@ void MujocoSimulation::physics_loop()
               sim_->InjectNoise(-1);
 #endif
               apply_staged_control_inputs();
+              run_pre_step_callback();
               // call mj_step
               mj_step(mj_model_, mj_data_);
 
@@ -1797,6 +1845,7 @@ void MujocoSimulation::physics_loop()
           if (pending_steps_.load() > 0)
           {
             apply_staged_control_inputs();
+            run_pre_step_callback();
             mj_step(mj_model_, mj_data_);
             publish_control_state();
             publish_clock();

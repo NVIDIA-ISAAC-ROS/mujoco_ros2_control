@@ -56,7 +56,7 @@
    } else {
      mjopt_prev_ = m_->opt;
      opt_prev_ = opt;
-@@ -2864,6 +2906,19 @@ void Simulate::RenderLoop() {
+@@ -2864,6 +2906,20 @@ void Simulate::RenderLoop() {
        // update scene, doing a full sync if in fully managed mode
        if (!is_passive_) {
          Sync();
@@ -65,7 +65,8 @@
 +        int nusergeom = user_scn_geoms_.size();
 +        int ngeom = std::min(nusergeom, this->scn.maxgeom - this->scn.ngeom);
 +        if (ngeom < nusergeom) {
-+          mj_warning(this->d_, mjWARN_VGEOMFULL, this->scn.maxgeom);
++          mju_warning("Pre-allocated visual geom buffer is full. Increase maxgeom above %d.",
++                      this->scn.maxgeom);
 +        }
 +        std::memcpy(this->scn.geoms + this->scn.ngeom, user_scn_geoms_.data(),
 +                    ngeom * sizeof(mjvGeom));
@@ -76,7 +77,7 @@
        } else if (m_passive_ && d_passive_) {
          // the user has called Sync() in their code
          mjv_updateScene(m_passive_, d_passive_,
-@@ -2877,6 +2932,9 @@ void Simulate::RenderLoop() {
+@@ -2877,6 +2933,9 @@ void Simulate::RenderLoop() {
          }
          std::memcpy(this->scn.geoms + this->scn.ngeom, user_scn_geoms_.data(),
                      ngeom * sizeof(mjvGeom));

@@ -311,6 +311,7 @@ ament_export_dependencies(
   mujoco_ros2_control_plugins
   pluginlib
   control_toolbox
+  tf2_ros
   Eigen3
   mujoco_vendor
 )
