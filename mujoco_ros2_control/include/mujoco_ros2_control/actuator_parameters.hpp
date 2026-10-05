@@ -16,7 +16,16 @@ struct ActuatorAffineParameters
   double bias_position{ 0.0 };
   double bias_velocity{ 0.0 };
 
-  bool operator==(const ActuatorAffineParameters&) const = default;
+  bool operator==(const ActuatorAffineParameters& other) const
+  {
+    return gain == other.gain && bias_constant == other.bias_constant && bias_position == other.bias_position &&
+           bias_velocity == other.bias_velocity;
+  }
+
+  bool operator!=(const ActuatorAffineParameters& other) const
+  {
+    return !(*this == other);
+  }
 };
 
 /** A complete affine-parameter update for one MuJoCo actuator. */

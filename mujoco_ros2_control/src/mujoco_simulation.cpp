@@ -22,6 +22,7 @@
 #include "mujoco_ros2_control/sim_display_text.hpp"
 
 #include <unistd.h>
+#include <algorithm>
 #include <cerrno>
 #include <chrono>
 #include <cmath>
@@ -1485,8 +1486,10 @@ void MujocoSimulation::set_actuator_parameters(const ActuatorParameterUpdate& up
   validate_actuator_id(mj_model_, update.actuator_id);
   const std::lock_guard<std::recursive_mutex> sim_lock(*sim_mutex_);
   const std::lock_guard<std::mutex> staging_lock(control_staging_mutex_);
-  std::erase_if(actuator_parameter_updates_staged_,
-                [&update](const auto& pending) { return pending.actuator_id == update.actuator_id; });
+  auto& staged = actuator_parameter_updates_staged_;
+  staged.erase(std::remove_if(staged.begin(), staged.end(),
+                              [&update](const auto& pending) { return pending.actuator_id == update.actuator_id; }),
+               staged.end());
   apply_actuator_parameters(mj_model_, update);
 }
 
