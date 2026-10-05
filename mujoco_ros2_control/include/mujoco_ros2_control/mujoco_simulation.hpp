@@ -540,9 +540,8 @@ private:
 
   // Guards the staged control inputs (ctrl_staged_, qfrc_applied_staged_, xfrc_plugin_desired_,
   // control_inputs_staged_, qvel_override_staged_, actuator_parameter_updates_staged_).
-  // Separate from data_exchange_mutex_ so
-  // that staging commands in write() and applying them before each physics step never queue
-  // behind a full mjData copy.
+  // Separate from data_exchange_mutex_ so that staging commands in write() and applying them
+  // before each physics step never queue behind a full mjData copy.
   // Critical sections are all small buffer copies.
   // Lock order: sim_mutex_ (if needed) before this one; never held with data_exchange_mutex_.
   std::mutex control_staging_mutex_;

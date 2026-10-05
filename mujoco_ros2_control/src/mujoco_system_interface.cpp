@@ -985,10 +985,7 @@ MujocoSystemInterface::perform_command_mode_switch(const std::vector<std::string
       for (auto* actuator : actuators)
       {
         actuator->is_impedance_control_enabled = true;
-        // A MuJoCo POSITION actuator reads ctrl as a position setpoint and
-        // applies gain/bias internally, so summing a torque into ctrl would be
-        // a unit mismatch. Drive those through the actuator's own gains
-        // instead; see the note in write().
+        // POSITION actuators read ctrl as a setpoint; see write() for how kp/kd map onto their gains.
         actuator->uses_native_position_impedance = actuator->actuator_type == ActuatorType::POSITION;
       }
       RCLCPP_INFO(get_logger(), "Joint %s: impedance control enabled", joint_name.c_str());

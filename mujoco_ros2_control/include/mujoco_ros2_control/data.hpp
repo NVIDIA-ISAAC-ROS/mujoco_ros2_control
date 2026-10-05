@@ -135,8 +135,8 @@ struct MuJoCoActuatorData
   // them when the joint is released.
   std::optional<ActuatorAffineParameters> authored_parameters;
 
-  // Last native-impedance parameters requested from the physics thread. Keeping
-  // this as one value makes the coefficient set an indivisible unit here too.
+  // Last native-impedance parameters staged for the physics thread, used to skip
+  // redundant updates.
   std::optional<ActuatorAffineParameters> last_requested_parameters;
 
   void copy_state_to_transmission()
