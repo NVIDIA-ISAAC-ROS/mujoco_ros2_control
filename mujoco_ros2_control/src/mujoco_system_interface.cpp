@@ -536,7 +536,7 @@ MujocoSystemInterface::on_init(const hardware_interface::HardwareComponentInterf
         get_hardware_parameter_or(get_hardware_info(), "publish_floating_base_tf", "true") == "true";
     if (publish_floating_base_tf_)
     {
-      floating_base_tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(get_node());
+      floating_base_tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*get_node());
       floating_base_tf_msg_.header.frame_id = odom_frame;
       floating_base_tf_msg_.child_frame_id = floating_base_msg_.child_frame_id;
       RCLCPP_INFO(get_logger(), "Publishing floating base TF: %s -> %s", odom_frame.c_str(),

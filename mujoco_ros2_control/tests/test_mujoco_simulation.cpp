@@ -345,9 +345,9 @@ TEST_F(MujocoSimulationTest, RejectsInvalidActuatorParameterUpdateIds)
   ASSERT_NE(control, nullptr);
 
   EXPECT_THROW(sim_->apply_control_data(control, { { -1, {} } }), std::out_of_range);
-  EXPECT_THROW(sim_->apply_control_data(control, { { sim_->model()->nu, {} } }), std::out_of_range);
+  EXPECT_THROW(sim_->apply_control_data(control, { { static_cast<int>(sim_->model()->nu), {} } }), std::out_of_range);
   EXPECT_THROW(sim_->set_actuator_parameters({ -1, {} }), std::out_of_range);
-  EXPECT_THROW(sim_->set_actuator_parameters({ sim_->model()->nu, {} }), std::out_of_range);
+  EXPECT_THROW(sim_->set_actuator_parameters({ static_cast<int>(sim_->model()->nu), {} }), std::out_of_range);
 
   mj_deleteData(control);
 }
