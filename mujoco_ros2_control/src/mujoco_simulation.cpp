@@ -20,6 +20,7 @@
 #include "mujoco_ros2_control/mujoco_simulation.hpp"
 #include "array_safety.h"
 #include "mujoco_ros2_control/sim_display_text.hpp"
+#include "mujoco_ros2_control_plugins/glfw_platform.hpp"
 #include "render_loop_exit.hpp"
 
 #include <unistd.h>
@@ -556,6 +557,8 @@ bool MujocoSimulation::initialize(rclcpp::Node::SharedPtr node, const std::strin
   mujoco_model_topic_ = mujoco_model_topic;
   sim_speed_factor_ = sim_speed_factor;
   headless_ = headless;
+
+  mujoco_ros2_control_plugins::prefer_x11_without_wayland_display();
 
   if (sim_speed_factor_ > 0)
   {
