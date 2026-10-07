@@ -527,6 +527,21 @@ MujocoSimulation::~MujocoSimulation()
   }
 }
 
+/**
+ * GLFW >= 3.4 built with both Wayland and X11 probes Wayland first unless XDG_SESSION_TYPE says otherwise. Without
+ * a Wayland compositor (e.g. inside Docker) libwayland prints "XDG_RUNTIME_DIR is invalid or not set" before GLFW
+ * falls back to X11. Skip the probe when no Wayland display is advertised. Must run before any glfwInit() call.
+ */
+static void preferX11WithoutWaylandDisplay()
+{
+#if GLFW_VERSION_MAJOR > 3 || (GLFW_VERSION_MAJOR == 3 && GLFW_VERSION_MINOR >= 4)
+  if (std::getenv("WAYLAND_DISPLAY") == nullptr && glfwPlatformSupported(GLFW_PLATFORM_X11))
+  {
+    glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_X11);
+  }
+#endif
+}
+
 bool MujocoSimulation::initialize(rclcpp::Node::SharedPtr node, const std::string& model_path,
                                   const std::string& mujoco_model_topic, double sim_speed_factor, bool headless)
 {
@@ -535,6 +550,8 @@ bool MujocoSimulation::initialize(rclcpp::Node::SharedPtr node, const std::strin
   mujoco_model_topic_ = mujoco_model_topic;
   sim_speed_factor_ = sim_speed_factor;
   headless_ = headless;
+
+  preferX11WithoutWaylandDisplay();
 
   if (sim_speed_factor_ > 0)
   {
