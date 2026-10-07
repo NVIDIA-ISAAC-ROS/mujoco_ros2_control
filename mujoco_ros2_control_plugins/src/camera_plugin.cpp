@@ -19,6 +19,8 @@
 
 #include "camera_plugin.hpp"
 
+#include "mujoco_ros2_control_plugins/glfw_platform.hpp"
+
 namespace mujoco_ros2_control_plugins
 {
 
@@ -51,6 +53,7 @@ bool CameraPlugin::init(rclcpp::Node::SharedPtr node, const mjModel* model, mjDa
 
   // Start the rendering thread process
   // Try GLFW first, fall back to EGL for headless environments
+  prefer_x11_without_wayland_display();
   if (glfw_init_fn())
   {
     use_egl_ = false;
