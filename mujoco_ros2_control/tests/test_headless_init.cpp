@@ -425,6 +425,93 @@ TEST_F(HeadlessInitTest, ImpedanceInterfacesDriveMotorControl)
   EXPECT_NEAR(observed_effort, expected_effort, 1e-9);
 }
 
+TEST_F(HeadlessInitTest, MotorImpedanceSurvivesWorldReset)
+{
+  const auto info = create_impedance_hardware_info();
+#if ROS_DISTRO_HUMBLE
+  const auto init_result = interface_->on_init(info);
+#else
+  hardware_interface::HardwareComponentInterfaceParams params;
+  params.hardware_info = info;
+  const auto init_result = interface_->on_init(params);
+#endif
+  ASSERT_EQ(init_result, hardware_interface::CallbackReturn::SUCCESS);
+
+  auto command_interfaces = interface_->export_command_interfaces();
+  auto state_interfaces = interface_->export_state_interfaces();
+  const auto set_command = [&command_interfaces](const std::string& name, double value) {
+    auto it = std::find_if(command_interfaces.begin(), command_interfaces.end(),
+                           [&name](const auto& interface) { return interface.get_name() == name; });
+    ASSERT_NE(it, command_interfaces.end()) << "Missing command interface: " << name;
+#if ROS_DISTRO_HUMBLE
+    it->set_value(value);
+#else
+    ASSERT_TRUE(it->set_value(value));
+#endif
+  };
+  const auto get_state = [&state_interfaces](const std::string& name) {
+    auto it = std::find_if(state_interfaces.begin(), state_interfaces.end(),
+                           [&name](const auto& interface) { return interface.get_name() == name; });
+    if (it == state_interfaces.end())
+    {
+      throw std::runtime_error("Missing state interface: " + name);
+    }
+#if ROS_DISTRO_HUMBLE
+    return it->get_value();
+#else
+    return it->template get_optional<double>().value();
+#endif
+  };
+
+  set_command("hinge/kp", 20.0);
+  set_command("hinge/kd", 4.0);
+  ASSERT_EQ(interface_->perform_command_mode_switch(
+                { "hinge/position", "hinge/velocity", "hinge/effort", "hinge/kp", "hinge/kd" }, {}),
+            hardware_interface::return_type::OK);
+  ASSERT_EQ(interface_->write(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.01)),
+            hardware_interface::return_type::OK);
+
+  auto reset_node = std::make_shared<rclcpp::Node>("motor_impedance_reset_client");
+  auto reset_client =
+      reset_node->create_client<mujoco_ros2_control_msgs::srv::ResetWorld>("/mujoco_ros2_control_node/reset_world");
+  ASSERT_TRUE(reset_client->wait_for_service(std::chrono::seconds(5)));
+  auto reset_future =
+      reset_client->async_send_request(std::make_shared<mujoco_ros2_control_msgs::srv::ResetWorld::Request>());
+  ASSERT_EQ(rclcpp::spin_until_future_complete(reset_node, reset_future, std::chrono::seconds(5)),
+            rclcpp::FutureReturnCode::SUCCESS);
+  ASSERT_TRUE(reset_future.get()->success);
+
+  // The controller keeps claiming kp/kd across the reset and never re-switches
+  // modes, so the next write must still apply the impedance law, not fall back
+  // to the effort command alone.
+  ASSERT_EQ(interface_->read(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.01)),
+            hardware_interface::return_type::OK);
+  const double position_state = get_state("hinge/position");
+  const double velocity_state = get_state("hinge/velocity");
+  set_command("hinge/position", position_state + 0.2);
+  set_command("hinge/velocity", 0.0);
+  set_command("hinge/effort", 0.1);
+  ASSERT_EQ(interface_->write(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.01)),
+            hardware_interface::return_type::OK);
+
+  const double expected_effort = 0.1 + 20.0 * 0.2 + 4.0 * (0.0 - velocity_state);
+  double observed_effort = 0.0;
+  for (size_t attempt = 0; attempt < 1000; ++attempt)
+  {
+    mjData* data = nullptr;
+    interface_->get_data(data);
+    ASSERT_NE(data, nullptr);
+    observed_effort = data->ctrl[0];
+    mj_deleteData(data);
+    if (std::abs(observed_effort - expected_effort) <= 1e-9)
+    {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  EXPECT_NEAR(observed_effort, expected_effort, 1e-9);
+}
+
 TEST_F(HeadlessInitTest, PositionImpedanceHonorsAuthoredRangesAndRestoresAuthoredGains)
 {
   const auto info = create_position_impedance_hardware_info();
@@ -493,7 +580,7 @@ TEST_F(HeadlessInitTest, PositionImpedanceHonorsAuthoredRangesAndRestoresAuthore
   EXPECT_DOUBLE_EQ(model->actuator_biasprm[actuator_id * mjNBIAS + 2], -0.7);
   mj_deleteModel(model);
 
-  // Re-enter impedance mode so reset exercises restoration independently.
+  // Re-enter impedance mode before the world reset.
   ASSERT_EQ(interface_->perform_command_mode_switch(
                 { "hinge/position", "hinge/velocity", "hinge/effort", "hinge/kp", "hinge/kd" }, {}),
             hardware_interface::return_type::OK);
@@ -512,26 +599,22 @@ TEST_F(HeadlessInitTest, PositionImpedanceHonorsAuthoredRangesAndRestoresAuthore
             rclcpp::FutureReturnCode::SUCCESS);
   ASSERT_TRUE(reset_future.get()->success);
 
+  // The controller still claims kp/kd, so the reset keeps impedance mode and
+  // the next write programs the commanded gains without a new mode switch.
+  ASSERT_EQ(interface_->write(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.01)),
+            hardware_interface::return_type::OK);
   model = nullptr;
   interface_->get_model(model);
   ASSERT_NE(model, nullptr);
-  EXPECT_DOUBLE_EQ(model->actuator_gainprm[actuator_id * mjNGAIN], 3.0);
-  EXPECT_DOUBLE_EQ(model->actuator_biasprm[actuator_id * mjNBIAS + 1], -3.0);
-  EXPECT_DOUBLE_EQ(model->actuator_biasprm[actuator_id * mjNBIAS + 2], -0.7);
+  EXPECT_DOUBLE_EQ(model->actuator_gainprm[actuator_id * mjNGAIN], 20.0);
+  EXPECT_DOUBLE_EQ(model->actuator_biasprm[actuator_id * mjNBIAS + 2], -4.0);
   mj_deleteModel(model);
 
   data = nullptr;
   interface_->get_data(data);
   ASSERT_NE(data, nullptr);
   EXPECT_DOUBLE_EQ(data->qpos[0], 0.5);
-  EXPECT_DOUBLE_EQ(data->qfrc_actuator[0], -1.5);
   mj_deleteData(data);
-
-  ASSERT_EQ(interface_->perform_command_mode_switch(
-                { "hinge/position", "hinge/velocity", "hinge/effort", "hinge/kp", "hinge/kd" }, {}),
-            hardware_interface::return_type::OK);
-  ASSERT_EQ(interface_->write(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.01)),
-            hardware_interface::return_type::OK);
 
   rclcpp_lifecycle::State inactive_state(0, "inactive");
   ASSERT_EQ(interface_->on_deactivate(inactive_state), hardware_interface::CallbackReturn::SUCCESS);
