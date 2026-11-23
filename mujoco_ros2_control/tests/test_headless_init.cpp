@@ -493,7 +493,7 @@ TEST_F(HeadlessInitTest, PositionImpedanceHonorsAuthoredRangesAndRestoresAuthore
   EXPECT_DOUBLE_EQ(model->actuator_biasprm[actuator_id * mjNBIAS + 2], -0.7);
   mj_deleteModel(model);
 
-  // Re-enter impedance mode so reset exercises restoration independently.
+  // Re-enter impedance mode before the world reset.
   ASSERT_EQ(interface_->perform_command_mode_switch(
                 { "hinge/position", "hinge/velocity", "hinge/effort", "hinge/kp", "hinge/kd" }, {}),
             hardware_interface::return_type::OK);
@@ -512,26 +512,22 @@ TEST_F(HeadlessInitTest, PositionImpedanceHonorsAuthoredRangesAndRestoresAuthore
             rclcpp::FutureReturnCode::SUCCESS);
   ASSERT_TRUE(reset_future.get()->success);
 
+  // The controller still claims kp/kd, so the reset keeps impedance mode and
+  // the next write programs the commanded gains without a new mode switch.
+  ASSERT_EQ(interface_->write(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.01)),
+            hardware_interface::return_type::OK);
   model = nullptr;
   interface_->get_model(model);
   ASSERT_NE(model, nullptr);
-  EXPECT_DOUBLE_EQ(model->actuator_gainprm[actuator_id * mjNGAIN], 3.0);
-  EXPECT_DOUBLE_EQ(model->actuator_biasprm[actuator_id * mjNBIAS + 1], -3.0);
-  EXPECT_DOUBLE_EQ(model->actuator_biasprm[actuator_id * mjNBIAS + 2], -0.7);
+  EXPECT_DOUBLE_EQ(model->actuator_gainprm[actuator_id * mjNGAIN], 20.0);
+  EXPECT_DOUBLE_EQ(model->actuator_biasprm[actuator_id * mjNBIAS + 2], -4.0);
   mj_deleteModel(model);
 
   data = nullptr;
   interface_->get_data(data);
   ASSERT_NE(data, nullptr);
   EXPECT_DOUBLE_EQ(data->qpos[0], 0.5);
-  EXPECT_DOUBLE_EQ(data->qfrc_actuator[0], -1.5);
   mj_deleteData(data);
-
-  ASSERT_EQ(interface_->perform_command_mode_switch(
-                { "hinge/position", "hinge/velocity", "hinge/effort", "hinge/kp", "hinge/kd" }, {}),
-            hardware_interface::return_type::OK);
-  ASSERT_EQ(interface_->write(rclcpp::Time(0), rclcpp::Duration::from_seconds(0.01)),
-            hardware_interface::return_type::OK);
 
   rclcpp_lifecycle::State inactive_state(0, "inactive");
   ASSERT_EQ(interface_->on_deactivate(inactive_state), hardware_interface::CallbackReturn::SUCCESS);

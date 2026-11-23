@@ -2462,8 +2462,10 @@ void MujocoSystemInterface::reset_simulation_state(bool /*fill_initial_state*/)
   // Reset command interfaces to initial position commands
   for (auto& actuator : mujoco_actuator_data_)
   {
-    restore_authored_position_gains(simulation_.get(), &actuator);
-    actuator.is_impedance_control_enabled = false;
+    // Impedance mode follows the claimed kp/kd interfaces, not the world state:
+    // keep it so the active controller still drives the joint after a reset.
+    // Force write() to reprogram native-position gains on its next cycle.
+    actuator.last_requested_parameters.reset();
     actuator.position_interface.state_ = simulation_->data()->qpos[actuator.mj_pos_adr];
     actuator.velocity_interface.state_ = simulation_->data()->qvel[actuator.mj_vel_adr];
     actuator.effort_interface.state_ = 0.0;
@@ -2507,7 +2509,6 @@ void MujocoSystemInterface::reset_simulation_state(bool /*fill_initial_state*/)
   // Set joint commands to current state (maintaining position control)
   for (auto& joint : urdf_joint_data_)
   {
-    joint.is_impedance_control_enabled = false;
     joint.position_interface.command_ = joint.position_interface.state_;
     joint.velocity_interface.command_ = 0.0;
     joint.effort_interface.command_ = 0.0;
